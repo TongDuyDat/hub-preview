@@ -430,10 +430,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         `${kind} click ${changeId}: hunkIds=[${prior.join(", ")}] total=${cs.hunks.length} pendingBefore=${cs.hunks.filter((h) => h.decision === "pending").length}`,
       );
       const result = kind === "accept" ? hub.store.accept(changeId, hunkIds) : hub.store.reject(changeId, hunkIds);
-      // Ignore the watcher echo for the file we just wrote.
-      if (result.status === "resolved" || cs.applied) {
-        watcher.noteSelfWrite(cs.absPath);
-      }
+      // Every decision may write the file — accepting materialises lines, and rejecting a
+      // previously accepted hunk removes them again — so always suppress the watcher echo
+      // for the file we just wrote. Gating this on `cs.applied` missed the partial-accept
+      // case and let the watcher re-observe and clobber the staged change.
+      watcher.noteSelfWrite(cs.absPath);
       await diffView.refresh(changeId);
       refreshUi();
       logger.info(`${kind} ${changeId} -> ${result.status} (remaining ${result.remaining})`);

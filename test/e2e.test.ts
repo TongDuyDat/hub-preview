@@ -38,8 +38,8 @@ test("e2e: staged edit accepted, direct write hunk-rejected", async () => {
       content: "function add(a, b) {\n  return a + b;\n}\n\nfunction sub(a, b) {\n  return a - b;\n}\n",
     });
     assert.equal(proposed.hunks.length, 1);
-    // Apply-on-propose: the change is on disk so it shows inline in the editor.
-    assert.match(fs.readFileSync(file, "utf8"), /function sub/, "applied on propose");
+    // Review-then-apply: staging must NOT touch the file.
+    assert.doesNotMatch(fs.readFileSync(file, "utf8"), /function sub/, "not applied on propose");
 
     await api("POST", "/changes/accept", { changeId: proposed.changeId });
     assert.match(fs.readFileSync(file, "utf8"), /function sub/, "accepted edit kept");

@@ -39,7 +39,7 @@ test("one store serves many workspaces independently", async () => {
   // Accepting in one workspace must not touch the other.
   store.accept(a[0].id);
   assert.equal(fs.readFileSync(path.join(wsA, "a.txt"), "utf8"), "one\nTWO\n");
-  assert.equal(fs.readFileSync(path.join(wsB, "b.txt"), "utf8"), "alpha\nBETA\n");
+  assert.equal(fs.readFileSync(path.join(wsB, "b.txt"), "utf8"), "alpha\nbeta\n", "wsB is untouched");
   assert.equal(store.listChanges(wsB).length, 1, "wsB change is untouched");
 });
 
@@ -146,8 +146,8 @@ test("one hub serves proposes for two different workspaces", async () => {
 
     assert.equal(listA.files.length, 1);
     assert.equal(listB.files.length, 1);
-    assert.equal(fs.readFileSync(path.join(wsA, "a.txt"), "utf8"), "one\nTWO\n");
-    assert.equal(fs.readFileSync(path.join(wsB, "b.txt"), "utf8"), "alpha\nBETA\n");
+    assert.equal(fs.readFileSync(path.join(wsA, "a.txt"), "utf8"), "one\ntwo\n");
+    assert.equal(fs.readFileSync(path.join(wsB, "b.txt"), "utf8"), "alpha\nbeta\n");
   } finally {
     await hub.stop();
   }

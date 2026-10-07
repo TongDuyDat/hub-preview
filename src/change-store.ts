@@ -691,12 +691,9 @@ export class ChangeStore {
   }
 
   /**
-   * Stage a proposed content (MCP path).
-   *
-   * The change is written to disk immediately (like Antigravity), so it appears inline
-   * in the real file and the user can Accept/Reject hunks right there. "Reject" restores
-   * the baseline lines, so nothing is lost. `applied: true` reflects that the disk holds
-   * the proposed content.
+   * Stage a proposed content (MCP path). **Nothing is written to disk.** The file keeps
+   * its baseline content until the user decides, and only the hunks they accept are
+   * materialised — so `applied: false` here means "the disk does not hold this proposal".
    */
   propose(workspace: string, relPath: string, content: string, opts: { delete?: boolean } = {}): ChangeSet {
     const abs = resolveInside(workspace, relPath);
@@ -716,7 +713,7 @@ export class ChangeStore {
       path: rel,
       absPath: abs,
       origin: "mcp",
-      applied: true,
+      applied: false,
       eol: meta.eol,
       bom: meta.bom,
       finalNewline: meta.finalNewline,
@@ -730,12 +727,6 @@ export class ChangeStore {
       createdAt: existing?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     };
-    // Write the proposed content now so the editor shows the change in place.
-    if (opts.delete) {
-      deleteFileSafe(abs);
-    } else {
-      writeFileAtomic(abs, proposed);
-    }
     this.writeChange(cs);
     return cs;
   }
@@ -769,6 +760,18 @@ export class ChangeStore {
     // No baseline and no prior change: this is a file created since the checkpoint.
     const proposedExists = read.exists;
     const proposed = read.exists ? read.content : "";
+    // A staged (mcp) change owns the review state for this path: the disk holds at most
+    // the hunks the user has accepted, never the pending ones. Re-deriving hunks from the
+    // disk would silently drop every pending hunk, so trust the staged set unless someone
+    // wrote content that our own decisions did not put there. Compare lines only, so a
+    // framing-only difference (trailing newline) cannot trip it.
+    if (existing && existing.origin === "mcp") {
+      const diskLines = splitContent(proposed).lines;
+      const projected = resolveLines(splitContent(existing.baseline).lines, existing.hunks, "baseline");
+      if (diskLines.join("\n") === projected.join("\n")) {
+        return existing;
+      }
+    }
     if (!base.exists && !proposedExists && !existing) {
       return undefined; // nothing to show
     }
@@ -888,18 +891,23 @@ export class ChangeStore {
   }
 
   /**
-   * Apply decisions. In both paths the disk currently holds the proposed content
-   * (the MCP path writes it on propose; the FS path observed it), so we reconcile the
-   * file on every decision: rejected hunks go back to their baseline lines, pending and
-   * accepted hunks stay as proposed. When every hunk is decided, the baseline advances
-   * and the change set is cleared.
+   * Apply decisions. The disk holds the baseline plus whatever the user has already
+   * accepted — for an "mcp" change nothing else is written, for an "fs" change the agent's
+   * own write is already there. `applyToDisk` re-materialises the file on every decision,
+   * so an accepted hunk's lines appear and a rejected hunk's baseline lines are restored.
+   * When every hunk is decided the baseline advances and the change set is resolved.
    */
   private settle(cs: ChangeSet, decision: "accepted" | "rejected"): DecideResult {
     const pending = cs.hunks.filter((h) => h.decision === "pending").length;
     const fullyDecided = cs.hunks.length === 0 ? true : pending === 0;
 
+    // Which frame the disk is in depends on where the change came from:
+    //   "mcp" — the agent staged the edit and the disk still holds the baseline, so an
+    //           undecided hunk must stay at its baseline lines until the user accepts it.
+    //   "fs"  — the agent wrote the file directly, so an undecided hunk is already on disk.
+    const pendingMode = cs.origin === "mcp" ? "baseline" : "proposed";
     const baselineLines = splitContent(cs.baseline).lines;
-    const resolvedLines = resolveLines(baselineLines, cs.hunks, "proposed");
+    const resolvedLines = resolveLines(baselineLines, cs.hunks, pendingMode);
     const resolved = joinContent(resolvedLines, this.resolvedMeta(cs, decision));
     this.applyToDisk(cs, resolved);
 

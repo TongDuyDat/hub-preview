@@ -124,7 +124,7 @@ test("resolveHunkRanges tracks hunks after a rejected hunk shifts the lines belo
 
 // ---- Independent decisions -------------------------------------------------------
 
-test("accept B leaves A and C pending, each on disk as proposed", async () => {
+test("accept B writes only B; A and C stay at their baseline lines", async () => {
   const ws = tmp();
   const file = path.join(ws, "x.py");
   fs.writeFileSync(file, OLD);
@@ -136,10 +136,12 @@ test("accept B leaves A and C pending, each on disk as proposed", async () => {
   assert.equal(r.resolved, false);
   assert.deepEqual(store.findById(cs.id)!.hunks.map((h) => h.decision), ["pending", "accepted", "pending"]);
   const text = fs.readFileSync(file, "utf8");
-  assert.ok(text.includes("A = 111") && text.includes("B = 222") && text.includes("C = 333"));
+  assert.ok(text.includes("B = 222"), "B is on disk");
+  assert.equal(text.includes("A = 111"), false, "A is only pending, so it is not on disk");
+  assert.equal(text.includes("C = 333"), false, "C is only pending, so it is not on disk");
 });
 
-test("reject B restores only B; A and C stay as proposed", async () => {
+test("reject B writes nothing; A and C stay at their baseline lines", async () => {
   const ws = tmp();
   const file = path.join(ws, "x.py");
   fs.writeFileSync(file, OLD);
@@ -149,10 +151,6 @@ test("reject B restores only B; A and C stay as proposed", async () => {
 
   store.reject(cs.id, [cs.hunks[1].id]);
   assert.deepEqual(store.findById(cs.id)!.hunks.map((h) => h.decision), ["pending", "rejected", "pending"]);
-  const text = fs.readFileSync(file, "utf8");
-  assert.ok(text.includes("A = 111"), "A untouched");
-  assert.ok(text.includes("B = 2\n"), "B reverted to baseline");
-  assert.equal(text.includes("B = 222"), false, "B's new value gone");
-  assert.ok(text.includes("C = 333"), "C untouched");
+  assert.equal(fs.readFileSync(file, "utf8"), OLD, "the file is still exactly the baseline");
   assert.equal(store.listChanges(ws).length, 1, "still pending for A and C");
 });

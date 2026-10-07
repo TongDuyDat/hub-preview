@@ -89,8 +89,8 @@ test("MCP server forwards propose_edit to a live hub", async () => {
     assert.ok(payload.changeId);
     assert.equal(payload.hunks, 1);
     assert.equal(payload.status, "staged_for_review");
-    // Apply-on-propose: the edit is written so it shows inline; reject would restore it.
-    assert.equal(fs.readFileSync(path.join(workspace, "a.txt"), "utf8"), "hello there\n");
+    // Review-then-apply: the edit is staged, not written. `read_file` returns it (see Task 2).
+    assert.equal(fs.readFileSync(path.join(workspace, "a.txt"), "utf8"), "hello world\n");
   } finally {
     conn.proc.kill();
     await hub.stop();

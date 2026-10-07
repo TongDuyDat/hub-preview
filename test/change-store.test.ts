@@ -25,15 +25,15 @@ test("checkpoint snapshots current state and clear works", async () => {
   assert.equal(store.checkpointInfo(ws), undefined);
 });
 
-test("propose applies to disk immediately; accept keeps it", async () => {
+test("propose stages without writing; accept writes the accepted lines", async () => {
   const ws = makeWorkspace();
   const store = new ChangeStore({ baseDir: tmp() });
   await store.setCheckpoint(ws, { maxFileSize: 1e9, excludeGlobs: [] });
   const cs = store.propose(ws, "a.txt", "one\nTWO\nthree\n");
   assert.equal(cs.hunks.length, 1);
-  // Apply-on-propose: the new content is on disk so the editor can show it inline.
-  assert.equal(cs.applied, true);
-  assert.equal(fs.readFileSync(path.join(ws, "a.txt"), "utf8"), "one\nTWO\nthree\n");
+  // Review-then-apply: nothing is written until the user decides.
+  assert.equal(cs.applied, false);
+  assert.equal(fs.readFileSync(path.join(ws, "a.txt"), "utf8"), "one\ntwo\nthree\n");
 
   const result = store.accept(cs.id);
   assert.equal(result.resolved, true);

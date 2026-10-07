@@ -74,7 +74,7 @@ test("per-project accept leaves the other project untouched", async () => {
   }
 
   assert.equal(fs.readFileSync(path.join(wsA, "a.txt"), "utf8"), "one changed\n");
-  assert.equal(fs.readFileSync(path.join(wsB, "b.txt"), "utf8"), "alpha changed\n", "B still has its change");
+  assert.equal(fs.readFileSync(path.join(wsB, "b.txt"), "utf8"), "alpha\n", "B was never accepted, so it stays at its baseline");
   assert.equal(store.listChanges(wsB).length, 1, "B is still pending review");
 });
 
@@ -127,7 +127,8 @@ test("independent per-block decisions: accept A, leave B pending, reject C", asy
 
   const text = fs.readFileSync(file, "utf8");
   assert.ok(text.includes("A = 111"), "A is the accepted (new) value");
-  assert.ok(text.includes("B = 222"), "B is untouched — still the proposed value");
+  assert.ok(text.includes("B = 2\n"), "B is untouched — pending hunks are not written");
+  assert.equal(text.includes("B = 222"), false, "B's new value is not on disk until accepted");
   assert.ok(text.includes("C = 3\n"), "C is reverted to the baseline value");
   assert.equal(text.includes("C = 333"), false, "C's new value is gone");
 
