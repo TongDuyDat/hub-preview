@@ -3237,6 +3237,7 @@ const panels: unknown[] = [];
 
 function makeFakeWebview() {
   const listeners: ((msg: unknown) => void)[] = [];
+  const posted: unknown[] = [];
   return {
     html: "",
     options: {} as unknown,
@@ -3246,7 +3247,12 @@ function makeFakeWebview() {
       listeners.push(cb);
       return { dispose: () => {} };
     },
-    postMessage: async (_msg: unknown) => true,
+    postMessage: async (msg: unknown) => {
+      posted.push(msg);
+      return true;
+    },
+    /** Test hook: every message the provider posted, in order. */
+    posted,
     __receive: (msg: unknown) => listeners.forEach((cb) => cb(msg)),
   };
 }
@@ -3311,7 +3317,10 @@ function makeProvider() {
     },
     a,
   );
-  const view = (vscode as unknown as { __webviews: Map<string, { webview: { __receive(msg: unknown): void; html: string } }> })
+  // The stub's `registerWebviewViewProvider` resolves the view eagerly, so this call runs
+  // `resolveWebviewView` and populates `__webviews` before we read it back.
+  vscode.window.registerWebviewViewProvider(ReviewPanelProvider.viewType, provider);
+  const view = (vscode as unknown as { __webviews: Map<string, { webview: { __receive(msg: unknown): void; html: string; posted: unknown[] } }> })
     .__webviews.get("review-hub.changes")!;
   return { provider, a, cs, store, view, ws };
 }
@@ -3351,11 +3360,10 @@ test("an unknown or malformed webview command is ignored, not thrown", () => {
 });
 
 test("refresh posts the panel state to the webview", () => {
-  const { provider, cs } = makeProvider();
-  const { __panels } = vscode as unknown as { __panels: { posted: unknown[] }[] };
+  const { provider, view, cs } = makeProvider();
+  // `refresh()` also runs once inside `resolveWebviewView`, so the view already holds one update.
   provider.refresh();
-  assert.ok(__panels.length >= 1);
-  const messages = __panels.flatMap((p) => p.posted) as { type: string; state: { totalFiles: number } }[];
+  const messages = view.webview.posted as { type: string; state: { totalFiles: number } }[];
   const update = messages.find((m) => m.type === "update");
   assert.ok(update, "an update message was posted");
   assert.equal(update!.state.totalFiles, 1);
@@ -3363,16 +3371,7 @@ test("refresh posts the panel state to the webview", () => {
 });
 ```
 
-Note: the stub's `registerWebviewViewProvider` resolves the view eagerly, so `resolveWebviewView` runs at registration time. The test relies on that: it builds the provider, then reads the fake view out of `__webviews`.
-
-Hmm — but the test calls `makeProvider()`, which constructs the provider, and the provider only registers itself when the extension calls `vscode.window.registerWebviewViewProvider`. The test must do that itself. Fix `makeProvider` to register:
-
-```ts
-  const provider = new ReviewPanelProvider(...);
-  vscode.window.registerWebviewViewProvider(ReviewPanelProvider.viewType, provider);
-```
-
-and add `registerWebviewViewProvider` to the stub's `window` (already added in Step 1). Then `__webviews.get(...)` works.
+Note: the stub's `registerWebviewViewProvider` resolves the view eagerly, so `resolveWebviewView` runs at registration time. `makeProvider` therefore calls `vscode.window.registerWebviewViewProvider(ReviewPanelProvider.viewType, provider)` itself, which runs `resolveWebviewView` and populates `__webviews` before the test reads it back. The sidebar's fake webview records every posted message on `.posted` (the same field the `createWebviewPanel` fake uses), so the `refresh` test reads `view.webview.posted` directly rather than the panel registry — the sidebar never creates a panel.
 
 - [ ] **Step 3: Run the test to verify it fails**
 
