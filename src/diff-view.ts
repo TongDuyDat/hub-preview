@@ -60,16 +60,16 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     // The real file, so Accept/Reject is available without opening any review tab.
-    // Anchor on the RESOLVED line, not the proposed one: rejecting a hunk above changes
-    // how many lines it contributes, so `newStart` would put the buttons on the wrong
-    // line for every hunk below it.
+    // Anchor on the BASELINE frame: the disk holds the baseline plus the accepted hunks,
+    // so accepting a hunk above changes how many lines it contributes, and `newStart`
+    // would put the buttons on the wrong line for every hunk below it.
     if (uri.scheme === "file") {
       const cs = this.changeForFile(uri.fsPath);
       if (!cs || cs.binary) {
         return [];
       }
       const ranges = new Map(
-        resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, "proposed").map((r) => [r.id, r]),
+        resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, "baseline").map((r) => [r.id, r]),
       );
       return cs.hunks.flatMap((hunk, index) => {
         const anchor = ranges.get(hunk.id)?.start ?? hunk.newStart;

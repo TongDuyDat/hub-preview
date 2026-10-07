@@ -6,14 +6,19 @@
  * CodeLens directly on the file — so the user sees and resolves the change without
  * leaving the file, not only in the separate diff view.
  *
- * For a staged change (origin "mcp") the file on disk is still the baseline, so we
- * mark where the change will land. For an applied change (origin "fs") the file
- * already holds the new content, so we mark the changed lines as they are.
+ * Under review-then-apply the disk holds the baseline plus the hunks the user has accepted,
+ * so every anchor is computed in the "baseline" frame. A pending hunk is not on disk: its
+ * removal (or insertion) is previewed as ghost text, since VS Code injected text must be a
+ * single line.
  */
 import * as vscode from "vscode";
 import type { ChangeStore } from "./change-store";
 import type { ChangeSet, Hunk } from "./types";
 import { splitContent, resolveHunkRanges } from "./hunk-diff";
+
+/** Red/green foregrounds for the single-line ghost text, so a deletion reads as red. */
+const DELETED_COLOR = new vscode.ThemeColor("gitDecoration.deletedResourceForeground");
+const ADDED_COLOR = new vscode.ThemeColor("gitDecoration.addedResourceForeground");
 
 export class ChangeDecorator implements vscode.Disposable {
   private added: vscode.TextEditorDecorationType;
@@ -42,9 +47,10 @@ export class ChangeDecorator implements vscode.Disposable {
       borderStyle: "solid",
       borderColor: new vscode.ThemeColor("editorOverviewRuler.deletedForeground"),
     });
-    // A removed line is not on disk any more, so it cannot be coloured. Instead its text
-    // is shown as ghost text after the line where it was removed, so the user can read
-    // what the agent deleted without opening a separate diff.
+    // A pending hunk's removal, or an accepted hunk's already-removed lines, cannot be a
+    // coloured row: the lines are not on disk. Their text is shown as ghost text after the
+    // anchor line, in red (removed) or green (added), with an overview-ruler mark so the
+    // deletion is discoverable from the scrollbar too.
     this.deletionMarker = vscode.window.createTextEditorDecorationType({
       overviewRulerColor: new vscode.ThemeColor("editorOverviewRuler.deletedForeground"),
       overviewRulerLane: vscode.OverviewRulerLane.Left,
@@ -126,44 +132,54 @@ export class ChangeDecorator implements vscode.Disposable {
     const removed: vscode.DecorationOptions[] = [];
     const deleted: vscode.DecorationOptions[] = [];
 
-    // The disk holds the RESOLVED content, so a hunk's line range must be computed against
-    // the replay of every decision — not the proposed frame. Rejecting a hunk above shifts
-    // the lines below it, so anchoring on `newStart` would colour the wrong lines.
+    // The disk holds the baseline plus the accepted hunks, so a hunk's line range must be
+    // computed in the "baseline" frame — not the proposed one. Accepting a hunk above
+    // changes how many lines it contributes, so `newStart` would colour the wrong lines.
     const ranges = new Map(
-      resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, "proposed").map((r) => [r.id, r]),
+      resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, "baseline").map((r) => [r.id, r]),
     );
 
     const lastLine = Math.max(0, doc.lineCount - 1);
     for (const hunk of cs.hunks) {
       const label = hunkLabel(cs, hunk);
-      const rejected = hunk.decision === "rejected";
       const range = ranges.get(hunk.id);
       const start = clamp(range?.start ?? hunk.newStart, 0, lastLine);
-      // The surviving lines for this hunk (baseline lines once rejected, proposed otherwise).
-      const span = range ? range.length : rejected ? hunk.oldLines.length : hunk.newLines.length;
+      const span = range ? range.length : hunk.oldLines.length;
 
-      // GREEN — the new lines the agent wrote, while they are in effect (pending/accepted).
-      if (!rejected && span > 0) {
+      // GREEN — the accepted lines, which really are on disk now.
+      if (hunk.decision === "accepted" && span > 0) {
         const end = clamp(start + span - 1, start, lastLine);
         added.push({ range: new vscode.Range(start, 0, end, 0), hoverMessage: new vscode.MarkdownString(label) });
       }
 
-      // RED — when rejected, the baseline lines are what survives on disk.
-      if (rejected) {
+      // RED — a rejected hunk put the baseline lines back, so colour them to show the
+      // rejection took effect.
+      if (hunk.decision === "rejected") {
         const redSpan = Math.max(1, span || hunk.newLines.length || hunk.oldLines.length);
         const end = clamp(start + redSpan - 1, start, lastLine);
         removed.push({ range: new vscode.Range(start, 0, end, 0), hoverMessage: new vscode.MarkdownString(label) });
       }
 
-      // GHOST — the removed (baseline) lines. They are no longer on disk, so their content
-      // is shown after the line where they were removed; without this the user sees the
-      // additions but not what the agent deleted. Not shown once the hunk is rejected
-      // (the lines are back on disk then).
-      if (!rejected && hunk.oldLines.length > 0) {
+      // GHOST — what the user cannot see in the file: a pending hunk's would-be removal
+      // (or insertion), and an accepted hunk's already-removed lines. Red for removals,
+      // green for insertions, so the deletion reads as red even without a red row.
+      if (hunk.decision === "pending" && hunk.oldLines.length > 0) {
+        deleted.push({
+          range: new vscode.Range(start, 0, start, 0),
+          hoverMessage: pendingHover(label, hunk.oldLines, hunk.newLines),
+          renderOptions: { after: { contentText: ghostFor(hunk.oldLines), color: DELETED_COLOR } },
+        });
+      } else if (hunk.decision === "pending" && hunk.newLines.length > 0) {
+        deleted.push({
+          range: new vscode.Range(start, 0, start, 0),
+          hoverMessage: pendingHover(label, hunk.oldLines, hunk.newLines),
+          renderOptions: { after: { contentText: addedGhostFor(hunk.newLines), color: ADDED_COLOR } },
+        });
+      } else if (hunk.decision === "accepted" && hunk.oldLines.length > 0) {
         deleted.push({
           range: new vscode.Range(start, 0, start, 0),
           hoverMessage: removedHover(label, hunk.oldLines),
-          renderOptions: { after: { contentText: ghostFor(hunk.oldLines) } },
+          renderOptions: { after: { contentText: ghostFor(hunk.oldLines), color: DELETED_COLOR } },
         });
       }
     }
@@ -199,6 +215,30 @@ export function ghostFor(oldLines: string[]): string {
   const pad = " ".repeat(Math.min(Math.ceil(indent / 2), 20));
   const more = oldLines.length > 1 ? `  ⊖ +${oldLines.length - 1} more deleted` : "";
   return `  ⊖ ${pad}${shown}${more}`;
+}
+
+/** Ghost text for a pending insertion — the lines that would land if the user accepts. */
+export function addedGhostFor(newLines: string[]): string {
+  const raw = (newLines[0] ?? "").replace(/\t/g, "    ");
+  const indent = raw.length - raw.trimStart().length;
+  const body = raw.trimStart();
+  const shown = body.length > 100 ? `${body.slice(0, 100)}…` : body;
+  const pad = "\u2003".repeat(Math.min(Math.ceil(indent / 2), 20));
+  const more = newLines.length > 1 ? `  ⊕ +${newLines.length - 1} more added` : "";
+  return `  ⊕ ${pad}${shown}${more}`;
+}
+
+/** Hover for a pending hunk: both sides, so the user can read what would change. */
+function pendingHover(label: string, oldLines: string[], newLines: string[]): vscode.MarkdownString {
+  const block = (title: string, lines: string[]): string[] =>
+    lines.length === 0 ? [] : ["", `**${title}:**`, "```", ...lines.map((l) => l.replace(/\t/g, "    ")), "```"];
+  return new vscode.MarkdownString(
+    [
+      label,
+      ...block("Will be removed if accepted", oldLines),
+      ...block("Will be added if accepted", newLines),
+    ].join("\n"),
+  );
 }
 
 /** Hover for a ghost decoration: the full text of every removed line. */
