@@ -2151,7 +2151,9 @@ export class SqliteBackend implements StoreBackend {
   }
 
   pruneResolved(maxAgeMs: number): void {
-    this.driver.run("DELETE FROM changes WHERE status = 'resolved' AND updated_at < ?", Date.now() - maxAgeMs);
+    // `<=` (not `<`) to match JsonBackend's `now - updatedAt >= maxAgeMs`, so
+    // `pruneResolved(0)` drops a set resolved in the same millisecond in both backends.
+    this.driver.run("DELETE FROM changes WHERE status = 'resolved' AND updated_at <= ?", Date.now() - maxAgeMs);
   }
 
   // ---- baselines (content-addressed blobs on disk, same as JsonBackend) ----
