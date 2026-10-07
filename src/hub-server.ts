@@ -10,6 +10,7 @@ import { randomBytes } from "node:crypto";
 import { URL } from "node:url";
 import { ChangeStore, type SnapshotOptions } from "./change-store";
 import { readFileSafe, resolveInside, toPosix } from "./file-snapshot";
+import { resolveLines, splitContent, joinContent } from "./hunk-diff";
 import type { WindowState } from "./window-registry";
 import type { ApiError, ChangeSet } from "./types";
 import { HUB_PROTOCOL } from "./types";
@@ -226,12 +227,37 @@ export class HubServer {
     res.end(content);
   }
 
+  /**
+   * Read a file **through the review state**, not from the disk.
+   *
+   * Under review-then-apply the disk holds only the baseline plus whatever the user has
+   * already accepted, so an agent's own pending edits are not there. An agent that makes
+   * two sequential `propose_edit` calls sends the second one's `old_string` from the first
+   * one's output, so this route must report the *staged* content — baseline with every
+   * non-rejected hunk materialised — or the second call fails. Falls back to the disk when
+   * no change exists for the path.
+   */
   private routeFileRead(url: URL, res: http.ServerResponse): void {
     const workspace = this.param(url, "workspace");
     const relPath = this.param(url, "path");
     const abs = resolveInside(workspace, relPath);
     if (!abs) {
       this.send(res, 400, { error: { code: "bad_path", message: relPath } });
+      return;
+    }
+    const cs = this.store.findChangeByPath(workspace, toPosix(relPath));
+    if (cs && !cs.binary) {
+      const base = splitContent(cs.baseline);
+      const lines = resolveLines(base.lines, cs.hunks, "proposed");
+      const content = joinContent(lines, { eol: cs.eol, bom: cs.bom, finalNewline: cs.finalNewline });
+      this.send(res, 200, {
+        exists: cs.baselineExists || content.length > 0,
+        binary: false,
+        content,
+        hash: "",
+        path: toPosix(relPath),
+        staged: true,
+      });
       return;
     }
     const read = readFileSafe(abs);

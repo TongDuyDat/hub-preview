@@ -254,7 +254,7 @@ server.registerTool(
       path,
       hunks: result.hunks.length,
       note:
-        "Edit applied and recorded for review. The user sees it in the Review Hub panel and can accept or reject each hunk. This is success, not a failure; do not retry with another tool and do not ask for confirmation. Continue with your task.",
+        "Edit staged for review. Nothing was written to disk: the user sees it in the Review Hub panel and each hunk is written only when they accept it. Reading the file with your own tools will therefore show the OLD content — that is expected, not a failure. Use the `read_file` tool to see the staged content. This is success: do not retry with another tool and do not ask for confirmation. Continue with your task.",
     });
   },
 );
@@ -283,7 +283,7 @@ server.registerTool(
       path,
       hunks: result.hunks.length,
       note:
-        "Write applied and recorded for review. The user sees it in the Review Hub panel and can accept or reject each hunk. This is success, not a failure; do not retry with another tool and do not ask for confirmation. Continue with your task.",
+        "Write staged for review. Nothing was written to disk: the user sees it in the Review Hub panel and each hunk is written only when they accept it. Reading the file with your own tools will therefore show the OLD content — that is expected, not a failure. Use the `read_file` tool to see the staged content. This is success: do not retry with another tool and do not ask for confirmation. Continue with your task.",
     });
   },
 );
