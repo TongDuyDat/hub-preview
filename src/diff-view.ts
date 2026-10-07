@@ -1,21 +1,16 @@
 /**
  * The review surfaces for a change.
  *
- * Primary: the **merged view** (`review-hub://merged/<id>`) — one editor showing, for each
- * hunk, the baseline lines that were removed (red) directly above the proposed lines that
- * were added (green), with unchanged context between them. This is how the user sees old
- * and new code at once, which a plain decoration on the real file cannot do: VS Code
- * injected text must be a single line, so the old lines cannot be shown as ghost text.
+ * Primary: the **review tab** (`src/review-tab.ts`), which renders old and new code
+ * together per hunk with its own decision bars.
  *
- * Secondary: the classic side-by-side `vscode.diff` of baseline vs proposed.
- *
- * Both carry per-hunk Accept/Reject CodeLens, as does the real file itself.
+ * This file owns the classic side-by-side `vscode.diff` of baseline vs proposed, plus the
+ * per-hunk Accept/Reject CodeLens on the real file itself.
  */
 import * as vscode from "vscode";
 import type { ChangeStore } from "./change-store";
 import type { ChangeContentProvider } from "./content-provider";
 import { splitContent, diskFrame, resolveHunkRanges } from "./hunk-diff";
-import { buildMergedView, type MergedView } from "./merged-diff";
 
 export class HunkCodeLensProvider implements vscode.CodeLensProvider {
   private emitter = new vscode.EventEmitter<void>();
@@ -29,23 +24,6 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
 
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
     const uri = document.uri;
-
-    // The merged review view: anchors come from the merged layout, not the raw hunks.
-    if (uri.scheme === "review-hub" && uri.authority === "merged") {
-      const changeId = uri.path.replace(/^\//, "");
-      const cs = this.store.findById(changeId);
-      if (!cs || cs.binary) {
-        return [];
-      }
-      const view = buildMergedView(splitContent(cs.baseline).lines, cs.hunks);
-      return view.hunks.flatMap((h, index) => {
-        const hunk = cs.hunks.find((x) => x.id === h.id);
-        if (!hunk) {
-          return [];
-        }
-        return this.lensesFor(cs, hunk, index, h.anchor, document, cs.hunks.length);
-      });
-    }
 
     // The virtual "proposed" side of a side-by-side diff.
     if (uri.scheme === "review-hub" && uri.authority === "proposed") {
@@ -185,86 +163,9 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
 }
 
 /**
- * Red/green line decorations for the merged view, so removed and added lines read exactly
- * like a diff even though they live in one document.
+ * Owns the classic side-by-side `vscode.diff` of baseline vs proposed.
  */
-class MergedDecorator implements vscode.Disposable {
-  private deleted: vscode.TextEditorDecorationType;
-  private added: vscode.TextEditorDecorationType;
-
-  constructor(
-    private store: ChangeStore,
-    private provider: ChangeContentProvider,
-  ) {
-    this.deleted = vscode.window.createTextEditorDecorationType({
-      isWholeLine: true,
-      backgroundColor: new vscode.ThemeColor("diffEditor.removedLineBackground"),
-      overviewRulerColor: new vscode.ThemeColor("editorOverviewRuler.deletedForeground"),
-      overviewRulerLane: vscode.OverviewRulerLane.Left,
-      // A left border makes the block's extent obvious even on a themed background that is
-      // close to the editor's own colour.
-      borderWidth: "0 0 0 3px",
-      borderStyle: "solid",
-      borderColor: new vscode.ThemeColor("editorOverviewRuler.deletedForeground"),
-    });
-    this.added = vscode.window.createTextEditorDecorationType({
-      isWholeLine: true,
-      backgroundColor: new vscode.ThemeColor("diffEditor.insertedLineBackground"),
-      overviewRulerColor: new vscode.ThemeColor("editorOverviewRuler.addedForeground"),
-      overviewRulerLane: vscode.OverviewRulerLane.Left,
-      borderWidth: "0 0 0 3px",
-      borderStyle: "solid",
-      borderColor: new vscode.ThemeColor("editorOverviewRuler.addedForeground"),
-    });
-  }
-
-  apply(editor: vscode.TextEditor): void {
-    const uri = editor.document.uri;
-    if (uri.scheme !== "review-hub" || uri.authority !== "merged") {
-      return;
-    }
-    const changeId = uri.path.replace(/^\//, "");
-    const cs = this.store.findById(changeId);
-    if (!cs || cs.binary) {
-      editor.setDecorations(this.deleted, []);
-      editor.setDecorations(this.added, []);
-      return;
-    }
-    const view = buildMergedView(splitContent(cs.baseline).lines, cs.hunks);
-    const del: vscode.DecorationOptions[] = [];
-    const add: vscode.DecorationOptions[] = [];
-    for (const block of view.blocks) {
-      if (block.kind === "context") {
-        continue;
-      }
-      const start = clamp(block.start, 0, Math.max(0, editor.document.lineCount - 1));
-      const end = clamp(block.end - 1, start, Math.max(0, editor.document.lineCount - 1));
-      const range = new vscode.Range(start, 0, end, 0);
-      if (block.kind === "deleted") {
-        del.push({ range });
-      } else {
-        add.push({ range });
-      }
-    }
-    editor.setDecorations(this.deleted, del);
-    editor.setDecorations(this.added, add);
-  }
-
-  /** Re-apply to whichever merged editors are visible. */
-  refreshAll(): void {
-    for (const editor of vscode.window.visibleTextEditors) {
-      this.apply(editor);
-    }
-  }
-
-  dispose(): void {
-    this.deleted.dispose();
-    this.added.dispose();
-  }
-}
-
 export class DiffView implements vscode.Disposable {
-  private decorator: MergedDecorator;
   private disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -272,38 +173,7 @@ export class DiffView implements vscode.Disposable {
     private provider: ChangeContentProvider,
     private codeLens: HunkCodeLensProvider,
     private onDidChange: () => void,
-  ) {
-    this.decorator = new MergedDecorator(store, provider);
-    this.disposables.push(
-      this.decorator,
-      vscode.window.onDidChangeActiveTextEditor((e) => {
-        if (e) {
-          this.decorator.apply(e);
-        }
-      }),
-      vscode.window.onDidChangeVisibleTextEditors((editors) => {
-        for (const e of editors) {
-          this.decorator.apply(e);
-        }
-      }),
-    );
-  }
-
-  /** Open the merged review view: old (red) and new (green) code in one editor. */
-  async open(changeId: string, preview = true): Promise<void> {
-    const cs = this.store.findById(changeId);
-    if (!cs) {
-      void vscode.window.showWarningMessage(`Review Hub: change ${changeId} no longer exists.`);
-      return;
-    }
-    const doc = await vscode.workspace.openTextDocument(this.provider.mergedUri(changeId));
-    const editor = await vscode.window.showTextDocument(doc, {
-      preview,
-      preserveFocus: true,
-      viewColumn: vscode.ViewColumn.Beside,
-    });
-    this.decorator.apply(editor);
-  }
+  ) {}
 
   /** Open the classic side-by-side diff (baseline | proposed). */
   async openSideBySide(changeId: string): Promise<void> {
@@ -340,15 +210,13 @@ export class DiffView implements vscode.Disposable {
   }
 
   /**
-   * After a decision: refresh the virtual docs and the lens, re-decorate the merged view,
-   * and reopen its tab so the title reflects the new state (VS Code has no rename API for
-   * an editor tab).
+   * After a decision: refresh the virtual docs and the lens, and reopen the side-by-side
+   * tab so the title reflects the new state (VS Code has no rename API for an editor tab).
    */
   async refresh(changeId: string): Promise<void> {
     this.provider.refresh(changeId);
     this.codeLens.refresh();
     this.onDidChange();
-    this.decorator.refreshAll();
     await this.retitle(changeId);
   }
 
@@ -357,26 +225,16 @@ export class DiffView implements vscode.Disposable {
     if (!cs) {
       return;
     }
-    const newTitle = this.titleFor(changeId);
-    let merged = false;
     let sideBySide = false;
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
-        const input = tab.input as
-          | { uri?: vscode.Uri; modified?: vscode.Uri }
-          | undefined;
+        const input = tab.input as { modified?: vscode.Uri } | undefined;
         const id = (u?: vscode.Uri) => u?.scheme === "review-hub" && u.path.replace(/^\//, "") === changeId;
-        if (input?.uri?.authority === "merged" && id(input.uri)) {
-          await vscode.window.tabGroups.close(tab, true);
-          merged = true;
-        } else if (input?.modified?.scheme === "review-hub" && id(input.modified)) {
+        if (input?.modified?.scheme === "review-hub" && id(input.modified)) {
           await vscode.window.tabGroups.close(tab, true);
           sideBySide = true;
         }
       }
-    }
-    if (merged) {
-      await this.open(changeId, false);
     }
     if (sideBySide) {
       await this.openSideBySide(changeId);
@@ -393,5 +251,3 @@ export class DiffView implements vscode.Disposable {
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
-
-export type { MergedView };

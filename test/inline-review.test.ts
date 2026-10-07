@@ -9,6 +9,7 @@ import * as vscode from "./vscode-stub";
 import { ChangeStore } from "../src/change-store";
 import { ChangeContentProvider } from "../src/content-provider";
 import { HunkCodeLensProvider } from "../src/diff-view";
+import { buildReviewState } from "../src/review-panel-state";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-inline-"));
@@ -40,112 +41,108 @@ test("the content provider exposes `onDidChange`, so VS Code re-queries the merg
   sub.dispose();
 });
 
-test("the merged review document shows the OLD lines above the NEW lines", () => {
+test("the review state shows the OLD lines above the NEW lines", () => {
   const ws = tmp();
   const store = new ChangeStore({ baseDir: tmp() });
   fs.writeFileSync(path.join(ws, "demo.py"), OLD);
   const cs = store.propose(ws, "demo.py", NEW);
 
-  const provider = new ChangeContentProvider(store);
-  const merged = provider.mergedText(cs.id).split("\n");
-
+  const state = buildReviewState(cs);
   const oldLine = "from typing import List, Optional, Sequence, Tuple";
   const newLine = "from typing import List, Sequence, Tuple";
-  const iOld = merged.indexOf(oldLine);
-  const iNew = merged.indexOf(newLine);
+  const iOld = state.lines.findIndex((l) => l.text === oldLine && l.kind === "deleted");
+  const iNew = state.lines.findIndex((l) => l.text === newLine && l.kind === "added");
 
-  assert.notEqual(iOld, -1, "the old code is present in the merged view");
-  assert.notEqual(iNew, -1, "the new code is present in the merged view");
+  assert.notEqual(iOld, -1, "the old code is present, tagged as deleted (red)");
+  assert.notEqual(iNew, -1, "the new code is present, tagged as added (green)");
   assert.ok(iOld < iNew, "the old line is shown directly above the new line");
-  assert.ok(merged.includes("print('old')"), "the old body line is present");
-  assert.ok(merged.includes("print('new')"), "the new body line is present");
+  assert.ok(state.lines.some((l) => l.text === "print('old')" && l.kind === "deleted"));
+  assert.ok(state.lines.some((l) => l.text === "print('new')" && l.kind === "added"));
 });
 
-test("rejecting a hunk makes the merged view show only the old code again", () => {
+test("rejecting a hunk makes the review state show only the old code again", () => {
   const ws = tmp();
   const store = new ChangeStore({ baseDir: tmp() });
   fs.writeFileSync(path.join(ws, "demo.py"), OLD);
   const cs = store.propose(ws, "demo.py", NEW);
 
-  const provider = new ChangeContentProvider(store);
   store.reject(cs.id);
 
-  // The merged view now reflects the rejected state: old lines only.
-  const merged = provider.mergedText(cs.id);
-  assert.ok(merged.includes("Optional"), "the old code is still shown after reject");
-  assert.equal(merged.includes("Sequence, Tuple\nprint('new')"), false, "the new code is gone after reject");
-
+  const state = buildReviewState(store.findById(cs.id)!);
+  assert.ok(state.lines.some((l) => l.text.includes("Optional")), "the old code is still shown after reject");
+  assert.equal(state.lines.some((l) => l.kind === "added"), false, "nothing is added after reject");
+  assert.equal(state.pending, 0);
   // And the file on disk is back to the original.
   assert.equal(fs.readFileSync(path.join(ws, "demo.py"), "utf8"), OLD);
 });
 
-test("a fully-resolved change stays readable but is read-only", () => {
+test("accepting a hunk makes the review state show only the new code", () => {
+  const ws = tmp();
+  const store = new ChangeStore({ baseDir: tmp() });
+  fs.writeFileSync(path.join(ws, "demo.py"), OLD);
+  const cs = store.propose(ws, "demo.py", NEW);
+
+  store.accept(cs.id);
+
+  const state = buildReviewState(store.findById(cs.id)!);
+  assert.equal(state.lines.some((l) => l.text.includes("Optional")), false, "the old code is gone after accept");
+  assert.ok(state.lines.some((l) => l.text === "from typing import List, Sequence, Tuple" && l.kind === "added"));
+  assert.equal(fs.readFileSync(path.join(ws, "demo.py"), "utf8"), NEW);
+});
+
+test("the review state carries one decision bar per hunk", () => {
+  const ws = tmp();
+  const store = new ChangeStore({ baseDir: tmp() });
+  fs.writeFileSync(path.join(ws, "demo.py"), OLD);
+  const cs = store.propose(ws, "demo.py", NEW);
+
+  const state = buildReviewState(cs);
+  assert.equal(state.hunks.length, cs.hunks.length);
+  for (const h of state.hunks) {
+    assert.ok(h.line >= 0 && h.line < state.lines.length, "the bar anchors on a real line");
+  }
+});
+
+test("a fully-resolved change stays readable but has no pending hunks", () => {
   const ws = tmp();
   const store = new ChangeStore({ baseDir: tmp() });
   fs.writeFileSync(path.join(ws, "demo.py"), OLD);
   const cs = store.propose(ws, "demo.py", NEW);
   store.reject(cs.id);
 
-  // The resolved set is still on disk (so the tab is not blank)...
   const kept = store.findById(cs.id);
   assert.equal(kept?.status, "resolved");
-  // ...but it is not listed as a pending change.
-  assert.equal(store.listChanges(ws).length, 0);
+  assert.equal(store.listChanges(ws).length, 0, "not listed as a pending change");
 
-  // Its lenses are informational only — no Accept/Reject to click again.
-  const lenses = new HunkCodeLensProvider(store);
-  const doc = {
-    uri: vscode.Uri.parse(`review-hub://merged/${cs.id}`),
-    lineCount: 100,
-  } as unknown as vscode.TextDocument;
-  const got = lenses.provideCodeLenses(doc);
-  const commands = got.map((l) => (l.command as { command: string } | undefined)?.command);
-  assert.equal(commands.includes("review-hub.acceptHunk"), false);
-  assert.equal(commands.includes("review-hub.rejectHunk"), false);
-  assert.ok(got.length > 0, "the resolved state is still shown");
+  const state = buildReviewState(kept!);
+  assert.equal(state.status, "resolved");
+  assert.equal(state.pending, 0);
+  assert.ok(state.lines.length > 0, "the resolved state is still renderable");
 });
 
-test("accepting a hunk makes the merged view show only the new code", () => {
+test("a decided hunk is visibly decided in the review state", () => {
   const ws = tmp();
   const store = new ChangeStore({ baseDir: tmp() });
-  fs.writeFileSync(path.join(ws, "demo.py"), OLD);
-  const cs = store.propose(ws, "demo.py", NEW);
+  const pad = "pad\n".repeat(15);
+  fs.writeFileSync(path.join(ws, "demo.py"), `A = 1\n${pad}B = 2\n`);
+  const cs = store.propose(ws, "demo.py", `A = 111\n${pad}B = 222\n`);
+  assert.equal(cs.hunks.length, 2, "two hunks, so one can stay pending");
 
-  const provider = new ChangeContentProvider(store);
-  store.accept(cs.id);
+  const before = buildReviewState(store.findById(cs.id)!);
+  assert.deepEqual(before.hunks.map((h) => h.decision), ["pending", "pending"]);
 
-  const merged = provider.mergedText(cs.id);
-  assert.equal(merged.includes("Optional"), false, "the old code is gone after accept");
-  assert.ok(merged.includes("from typing import List, Sequence, Tuple"), "the new code remains");
-  assert.equal(fs.readFileSync(path.join(ws, "demo.py"), "utf8"), NEW);
+  store.accept(cs.id, [cs.hunks[0].id]);
+  const after = buildReviewState(store.findById(cs.id)!);
+  assert.deepEqual(after.hunks.map((h) => h.decision), ["accepted", "pending"]);
+  assert.equal(after.pending, 1);
 });
 
-test("the merged view carries Accept/Reject CodeLens for every hunk", () => {
+test("the real file carries Accept/Reject CodeLens, and a decided hunk looks decided", () => {
+  // Regression guard for "I click Accept and nothing happens", on the real file: this is the
+  // provider's `file`-scheme branch, the only Accept/Reject surface outside the webviews.
+  // (The old guard drove the merged authority, which this task removes.)
   const ws = tmp();
-  const store = new ChangeStore({ baseDir: tmp() });
-  fs.writeFileSync(path.join(ws, "demo.py"), OLD);
-  const cs = store.propose(ws, "demo.py", NEW);
-
-  const lenses = new HunkCodeLensProvider(store);
-  const doc = {
-    uri: vscode.Uri.parse(`review-hub://merged/${cs.id}`),
-    lineCount: 100,
-  } as unknown as vscode.TextDocument;
-
-  const got = lenses.provideCodeLenses(doc);
-  // 3 lenses per hunk (Accept, Reject, "hunk i/n").
-  assert.equal(got.length, cs.hunks.length * 3);
-  const commands = got.map((l) => (l.command as { command: string } | undefined)?.command);
-  assert.ok(commands.includes("review-hub.acceptHunk"));
-  assert.ok(commands.includes("review-hub.rejectHunk"));
-});
-
-test("a decided hunk looks decided: its buttons change, not just a label", () => {
-  // Regression guard for "I click Accept and nothing happens". A pending hunk and an
-  // accepted hunk used to render the SAME Accept/Reject buttons, so the click produced no
-  // visible change and a second click did nothing. The decided hunk must now render a
-  // static badge plus an Undo, so the state is visible and reversible.
-  const ws = tmp();
+  process.env.VSCODE_STUB_WORKSPACE = JSON.stringify([{ uri: { fsPath: ws }, name: "ws", index: 0 }]);
   const store = new ChangeStore({ baseDir: tmp() });
   const pad = "pad\n".repeat(15);
   fs.writeFileSync(path.join(ws, "demo.py"), `A = 1\n${pad}B = 2\n`);
@@ -154,7 +151,7 @@ test("a decided hunk looks decided: its buttons change, not just a label", () =>
 
   const lenses = new HunkCodeLensProvider(store);
   const doc = {
-    uri: vscode.Uri.parse(`review-hub://merged/${cs.id}`),
+    uri: vscode.Uri.file(path.join(ws, "demo.py")),
     lineCount: 100,
   } as unknown as vscode.TextDocument;
 
@@ -169,8 +166,5 @@ test("a decided hunk looks decided: its buttons change, not just a label", () =>
   const after = titles();
   assert.ok(after.some((t) => t.includes("Accepted")), "the accepted hunk shows an 'Accepted' badge");
   assert.ok(after.some((t) => t.includes("Undo")), "the accepted hunk offers Undo");
-  assert.ok(
-    after.some((t) => t.includes("$(check) Accept")),
-    "the still-pending hunk keeps its Accept button",
-  );
+  assert.ok(after.some((t) => t.includes("$(check) Accept")), "the still-pending hunk keeps its Accept button");
 });

@@ -228,8 +228,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       autoOpened.add(cs.id);
       try {
-        // Open the merged old+new review view beside the editor, without stealing focus.
-        await diffView.open(cs.id);
+        // Open the side-by-side diff beside the editor, without stealing focus.
+        await diffView.openSideBySide(cs.id);
       } catch {
         // file may have been deleted; ignore
       }
@@ -472,7 +472,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("review-hub.openDiff", async (arg?: FileNode | vscode.Uri | string) => {
       const changeId = await resolveChange(arg);
       if (changeId) {
-        await diffView.open(changeId);
+        await diffView.openSideBySide(changeId);
       }
     }),
     // Open the classic side-by-side (baseline | proposed) diff instead of the merged view.
