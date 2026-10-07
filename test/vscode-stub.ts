@@ -15,6 +15,7 @@ const log: string[] = [];
 const messages: string[] = [];
 const commands = new Map<string, ((...args: never[]) => unknown)[]>();
 const contentProviders = new Map<string, unknown>();
+const webviews = new Map<string, unknown>();
 
 class EventEmitter<T> {
   private listeners: ((e: T) => void)[] = [];
@@ -51,11 +52,37 @@ class TreeItem {
   }
 }
 
+const panels: unknown[] = [];
+
+function makeFakeWebview() {
+  const listeners: ((msg: unknown) => void)[] = [];
+  const posted: unknown[] = [];
+  return {
+    html: "",
+    options: {} as unknown,
+    cspSource: "vscode-resource://test",
+    asWebviewUri: (uri: { toString(): string }) => uri,
+    onDidReceiveMessage: (cb: (msg: unknown) => void) => {
+      listeners.push(cb);
+      return { dispose: () => {} };
+    },
+    postMessage: async (msg: unknown) => {
+      posted.push(msg);
+      return true;
+    },
+    /** Test hook: every message the provider posted, in order. */
+    posted,
+    __receive: (msg: unknown) => listeners.forEach((cb) => cb(msg)),
+  };
+}
+
 const stub = {
   __log: log,
   __messages: messages,
   __commands: commands,
   __contentProviders: contentProviders,
+  __webviews: webviews,
+  __panels: panels,
   EventEmitter,
   ThemeIcon,
   TreeItem,
@@ -112,7 +139,52 @@ const stub = {
       return { focused: true };
     },
     createTreeView: () => ({ dispose: () => {} }),
-    registerWebviewViewProvider: () => ({ dispose: () => {} }),
+    registerWebviewViewProvider: (id: string, provider: unknown) => {
+      const fake = {
+        viewType: id,
+        visible: true,
+        title: "Changes",
+        show: () => {},
+        onDidChangeVisibility: () => ({ dispose: () => {} }),
+        webview: makeFakeWebview(),
+      };
+      (provider as { resolveWebviewView(view: unknown): void }).resolveWebviewView(fake);
+      webviews.set(id, fake);
+      return { dispose: () => webviews.delete(id) };
+    },
+    createWebviewPanel: (id: string, title: string, _column: unknown, _options: unknown) => {
+      const listeners: ((msg: unknown) => void)[] = [];
+      const posted: unknown[] = [];
+      const panel = {
+        viewType: id,
+        title,
+        posted,
+        webview: {
+          html: "",
+          options: {} as unknown,
+          cspSource: "vscode-resource://test",
+          asWebviewUri: (uri: { toString(): string }) => uri,
+          onDidReceiveMessage: (cb: (msg: unknown) => void) => {
+            listeners.push(cb);
+            return { dispose: () => {} };
+          },
+          postMessage: async (msg: unknown) => {
+            posted.push(msg);
+            return true;
+          },
+          /** Test hook: pretend the webview sent this message. */
+          __receive: (msg: unknown) => listeners.forEach((cb) => cb(msg)),
+        },
+        onDidDispose: (cb: () => void) => {
+          (panel as { __dispose?: () => void }).__dispose = cb;
+          return { dispose: () => {} };
+        },
+        reveal: () => {},
+        dispose: () => (panel as { __dispose?: () => void }).__dispose?.(),
+      };
+      panels.push(panel);
+      return panel;
+    },
     registerFileDecorationProvider: () => ({ dispose: () => {} }),
     get activeTextEditor() {
       return undefined;
