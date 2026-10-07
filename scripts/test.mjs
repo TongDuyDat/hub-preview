@@ -36,9 +36,9 @@ await build({
   bundle: true,
   platform: "node",
   format: "cjs",
-  target: "node18",
+  target: "node22",
   sourcemap: "inline",
-  external: ["esbuild"],
+  external: ["esbuild", "node:sqlite"],
   alias: { vscode: path.resolve("test", "vscode-stub.ts") },
   logLevel: "silent",
 });
