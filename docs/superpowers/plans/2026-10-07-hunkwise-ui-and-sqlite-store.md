@@ -1012,14 +1012,17 @@ test("schema, upsert and read round-trip", () => {
   }
 });
 
-test("rows come back with a null prototype, so they must be spread", () => {
+test("rows come back as plain objects, spread out of the null-prototype row", () => {
   const db = openDatabase(dbFile())!;
   try {
     db.exec("CREATE TABLE t (id TEXT PRIMARY KEY)");
     db.run("INSERT INTO t (id) VALUES (?)", "a");
     const row = db.get<{ id: string }>("SELECT * FROM t")!;
-    assert.equal(Object.getPrototypeOf(row), null);
-    assert.deepEqual({ ...row }, { id: "a" });
+    // The driver spreads every row on the way out, so the value the caller sees has
+    // Object.prototype (unlike the raw node:sqlite row, which has a null prototype and
+    // would fail the deep-equality assertion below).
+    assert.equal(Object.getPrototypeOf(row), Object.prototype);
+    assert.deepEqual(row, { id: "a" });
   } finally {
     db.close();
   }
