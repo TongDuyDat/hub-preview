@@ -4415,10 +4415,11 @@ with:
     changeSets: (ws) => hub.store.listChangeSets(ws),
   };
 
-  // Declared before the panel/tab so their action closures can call them; assigned below.
-  let decide: (changeId: string, hunkIds: string[] | undefined, kind: "accept" | "reject") => Promise<void>;
-  let decideFileById: (changeId: string, kind: "accept" | "reject") => Promise<void>;
-  let decideMany: (workspaces: string[], kind: "accept" | "reject") => Promise<void>;
+  // `openReviewTab` is assigned below (after `tab` exists) but the action closures and the
+  // auto-open flush reference it earlier, so it needs a forward declaration. Nothing else
+  // does: `decide` is a `const` and `decideMany`/`decideFileById` are hoisted `async function`
+  // declarations later in this scope, and a closure may reference a later `const` as long as
+  // it does not *run* before that const is initialised.
   let openReviewTab: (changeId: string) => void;
 
   const panelActions: PanelActions = {
@@ -4462,7 +4463,7 @@ Replace `refreshUi`:
   }
 ```
 
-Delete the `const diffView = new DiffView(...)` line and everything that referenced it. In its place, keep a provider + CodeLens (both still needed) and nothing else:
+**Keep** the `const diffView = new DiffView(...)` construction exactly as it is:
 
 ```ts
   const diffView = new DiffView(hub.store, provider, codeLens, () => {
@@ -4470,7 +4471,7 @@ Delete the `const diffView = new DiffView(...)` line and everything that referen
   });
 ```
 
-`DiffView` now only serves `openSideBySide`, so it is still constructed but never `open`ed.
+`DiffView` still serves `review-hub.openSideBySide` and `DiffView.refresh` (called from `decide`), so it stays constructed and disposed via `context.subscriptions`. Only the merged view is gone (Task 10 already deleted `DiffView.open`); nothing opens it any more — the auto-open flush now opens the review tab.
 
 Replace every `model.workspaces()` with `source.workspaces()` — four call sites today, at `src/extension.ts:276` (the 2 s poll), `:349` (`updateStatus`), and `:513`/`:516` (the `acceptAll` / `rejectAll` commands). Then delete the `model` object entirely; `source` replaces it.
 
