@@ -349,6 +349,7 @@ CREATE TABLE IF NOT EXISTS changes (
   bom             INTEGER NOT NULL,
   final_newline   INTEGER NOT NULL,
   binary          INTEGER NOT NULL,
+  baseline_b64    INTEGER NOT NULL DEFAULT 0,
   baseline        TEXT NOT NULL,
   proposed        TEXT NOT NULL,
   baseline_exists INTEGER NOT NULL,
@@ -384,6 +385,7 @@ interface ChangeRow {
   bom: number;
   final_newline: number;
   binary: number;
+  baseline_b64: number;
   baseline: string;
   proposed: string;
   baseline_exists: number;
@@ -417,6 +419,7 @@ function rowToChangeSet(row: ChangeRow, hunks: HunkRow[]): ChangeSet {
     finalNewline: row.final_newline === 1,
     binary: row.binary === 1,
     baseline: row.baseline,
+    baselineB64: row.baseline_b64 === 1,
     proposed: row.proposed,
     baselineExists: row.baseline_exists === 1,
     proposedExists: row.proposed_exists === 1,
@@ -440,6 +443,19 @@ export class SqliteBackend implements StoreBackend {
   constructor(private driver: SqlDriver, baseDir?: string) {
     this.blobs = new BaselineBlobs(baseDir ?? path.join(process.env.HOME ?? "", ".review-hub"));
     this.driver.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /**
+   * Additive, idempotent migrations. `CREATE TABLE IF NOT EXISTS` never alters an existing
+   * table, so a database written by an earlier revision must be brought forward explicitly.
+   * Guarded on `PRAGMA table_info` so re-opening an up-to-date database is a no-op.
+   */
+  private migrate(): void {
+    const cols = this.driver.all<{ name: string }>("PRAGMA table_info(changes)");
+    if (!cols.some((c) => c.name === "baseline_b64")) {
+      this.driver.exec("ALTER TABLE changes ADD COLUMN baseline_b64 INTEGER NOT NULL DEFAULT 0");
+    }
   }
 
   // ---- checkpoints ----
@@ -490,8 +506,8 @@ export class SqliteBackend implements StoreBackend {
       this.driver.run(
         `INSERT OR REPLACE INTO changes
            (id, workspace, path, abs_path, origin, applied, status, eol, bom, final_newline,
-            binary, baseline, proposed, baseline_exists, proposed_exists, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            binary, baseline_b64, baseline, proposed, baseline_exists, proposed_exists, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         cs.id,
         cs.workspace,
         cs.path,
@@ -503,6 +519,7 @@ export class SqliteBackend implements StoreBackend {
         Number(cs.bom),
         Number(cs.finalNewline),
         Number(cs.binary),
+        Number(cs.baselineB64 ?? false),
         cs.baseline,
         cs.proposed,
         Number(cs.baselineExists),

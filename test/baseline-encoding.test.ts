@@ -5,6 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { ChangeStore } from "../src/change-store";
+import { SqliteBackend } from "../src/store-backend";
+import { openDatabase } from "../src/sqlite";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-enc-"));
@@ -110,4 +112,87 @@ test("a binary baseline is tagged bin: in the checkpoint and decodes back byte-e
   const resolved = await reader.baselineBytesForObserve(ws, "blob.bin");
   assert.equal(resolved.exists, true);
   assert.deepEqual(resolved.bytes, COMMITTED, "the tagged value decodes back to the committed bytes");
+});
+
+/**
+ * The pre-change `changes` table, exactly as `46ad05d` created it: no `baseline_b64`
+ * column. Used to prove the additive migration brings an existing database forward.
+ */
+const OLD_CHANGES_TABLE = `
+CREATE TABLE changes (
+  id              TEXT PRIMARY KEY,
+  workspace       TEXT NOT NULL,
+  path            TEXT NOT NULL,
+  abs_path        TEXT NOT NULL,
+  origin          TEXT NOT NULL,
+  applied         INTEGER NOT NULL,
+  status          TEXT NOT NULL,
+  eol             TEXT NOT NULL,
+  bom             INTEGER NOT NULL,
+  final_newline   INTEGER NOT NULL,
+  binary          INTEGER NOT NULL,
+  baseline        TEXT NOT NULL,
+  proposed        TEXT NOT NULL,
+  baseline_exists INTEGER NOT NULL,
+  proposed_exists INTEGER NOT NULL,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  UNIQUE (workspace, path)
+);`;
+
+test("an existing hub.db without baseline_b64 is migrated on open", () => {
+  const dir = tmp();
+  const driver = openDatabase(path.join(dir, "hub.db"));
+  assert.ok(driver, "node:sqlite must be available for this test");
+  // The first open creates the current schema; then rewind the table to the pre-change
+  // shape a database written by `46ad05d` would have, and re-open over the same driver.
+  new SqliteBackend(driver!);
+  driver!.exec("DROP TABLE changes");
+  driver!.exec(OLD_CHANGES_TABLE);
+  assert.ok(
+    !driver!.all<{ name: string }>("PRAGMA table_info(changes)").some((c) => c.name === "baseline_b64"),
+    "the rewound table must lack the column before the migration runs",
+  );
+
+  // Re-opening must migrate rather than throw on every subsequent query.
+  const migrated = new SqliteBackend(driver!);
+  assert.ok(
+    driver!.all<{ name: string }>("PRAGMA table_info(changes)").some((c) => c.name === "baseline_b64"),
+    "construction adds the missing column",
+  );
+  migrated.dispose();
+
+  // Re-opening an up-to-date database is a no-op (the migration stays idempotent).
+  const again = openDatabase(path.join(dir, "hub.db"));
+  assert.ok(again);
+  const third = new SqliteBackend(again!);
+  assert.ok(again!.all<{ name: string }>("PRAGMA table_info(changes)").some((c) => c.name === "baseline_b64"));
+  third.dispose();
+});
+
+test("oversize text reject survives the SQLite backend end-to-end (reviewer repro)", async () => {
+  const { ws, file } = oversizeTextRepo();
+  const store = new ChangeStore({ baseDir: tmp(), maxFileSize: MAX, backend: "sqlite" });
+
+  // Same sequence as the in-memory JSON case, but every ChangeSet now round-trips through
+  // SQLite: the oversize write takes the binary path and captures the baseline, then the
+  // agent shrinks the file so the text path handles the reject.
+  fs.writeFileSync(file, OVERSIZE_AGENT);
+  const oversize = await store.observe(ws, "big.txt");
+  assert.ok(oversize, "the oversize change is reported");
+  assert.equal(oversize!.binary, true, "an oversize text file uses the binary/oversize path");
+
+  fs.writeFileSync(file, "gamma line\n");
+  const cs = await store.observe(ws, "big.txt");
+  assert.ok(cs, "the shrunk text change is reported");
+
+  const r = store.reject(cs!.id);
+  assert.equal(r.resolved, true);
+  assert.deepEqual(
+    fs.readFileSync(file),
+    Buffer.from(ORIGINAL),
+    "the captured bytes are restored byte-for-byte through the SQLite store",
+  );
+  assert.equal(await store.observe(ws, "big.txt"), undefined, "the rejected file must not reappear");
+  store.dispose();
 });

@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { JsonBackend, SqliteBackend, type StoreBackend } from "../src/store-backend";
+import { encodeBaseline } from "../src/file-snapshot";
 import { openDatabase } from "../src/sqlite";
 import type { ChangeSet } from "../src/types";
 
@@ -143,6 +144,31 @@ eachBackend((name, make) => {
     assert.equal(backend.putBaseline("/ws", "hello\n"), hash, "the same content gives the same hash");
     assert.equal(backend.getBaseline("/ws", hash), "hello\n");
     assert.equal(backend.getBaseline("/ws", "missing"), "");
+    backend.dispose();
+  });
+
+  test(`[${name}] baselineB64 round-trips through the backend`, () => {
+    const backend = make();
+    const bytes = Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe, 0x00, 0x41]);
+    // A binary set declares its baseline encoding explicitly...
+    backend.writeChange(
+      changeSet({
+        id: "bin1",
+        path: "blob.bin",
+        binary: true,
+        baseline: encodeBaseline(bytes),
+        baselineB64: true,
+      }),
+    );
+    const bin = backend.getChange("/ws", "bin1");
+    assert.ok(bin);
+    assert.equal(bin!.baselineB64, true, "the base64 encoding survives the round-trip");
+
+    // ...and a plain utf8 baseline reports false, not undefined.
+    backend.writeChange(changeSet({ id: "txt1", path: "a.txt", baselineB64: false }));
+    const txt = backend.getChange("/ws", "txt1");
+    assert.ok(txt);
+    assert.equal(txt!.baselineB64, false, "a plain baseline round-trips as false");
     backend.dispose();
   });
 });
