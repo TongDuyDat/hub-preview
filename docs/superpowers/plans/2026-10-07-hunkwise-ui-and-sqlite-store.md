@@ -1790,7 +1790,9 @@ export class JsonBackend implements StoreBackend {
         const file = path.join(dir, name);
         try {
           const cs = JSON.parse(fs.readFileSync(file, "utf8")) as ChangeSet;
-          if (cs.status === "resolved" && now - (cs.updatedAt ?? 0) > maxAgeMs) {
+          // `>=` rather than `>` so `pruneResolved(0)` reliably drops a set that was just
+          // resolved in the same millisecond ("older than 0ms" holds for anything).
+          if (cs.status === "resolved" && now - (cs.updatedAt ?? 0) >= maxAgeMs) {
             deleteFileSafe(file);
             removed = true;
           }
