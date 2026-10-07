@@ -18,7 +18,9 @@ import type {
   Hunk,
 } from "./types";
 import { computeHunks, diffStats, diskFrame, rebaseDecisions, resolveLines, splitContent, joinContent } from "./hunk-diff";
-import { hashContent, readFileSafe, resolveInside, toPosix, writeFileAtomic, deleteFileSafe } from "./file-snapshot";
+import { writeFileAtomic, deleteFileSafe, readFileSafe, resolveInside, toPosix, hashContent } from "./file-snapshot";
+import { JsonBackend, SqliteBackend, workspaceKey, type CheckpointRecord, type StoreBackend } from "./store-backend";
+import { openDatabase } from "./sqlite";
 import { readGitBaseline } from "./git-baseline";
 
 export interface SnapshotOptions {
@@ -108,21 +110,11 @@ export interface StoreOptions {
   baseDir?: string;
   maxFileSize?: number;
   excludeGlobs?: string[];
-}
-
-interface CheckpointFile {
-  workspace: string;
-  setAt: number;
-  files: Record<string, string>; // relPath -> content hash
-  /** True when the walk hit maxFiles/maxDurationMs and did not see the whole tree. */
-  truncated?: boolean;
+  /** Which persistence backend to use. `"auto"` prefers SQLite and falls back to JSON. */
+  backend?: "auto" | "json" | "sqlite";
 }
 
 const DEFAULT_MAX_FILE_SIZE = 2 * 1024 * 1024;
-
-function workspaceKey(workspace: string): string {
-  return createHash("sha256").update(workspace).digest("hex").slice(0, 16);
-}
 
 function changeIdFor(workspace: string, relPath: string): string {
   return createHash("sha256").update(`${workspace}\u0000${relPath}`).digest("hex").slice(0, 16);
@@ -186,73 +178,47 @@ export class ChangeStore {
   private maxFileSize: number;
   private excludeGlobs: string[];
   private excludeRes: RegExp[];
+  private backend: StoreBackend;
 
   constructor(opts: StoreOptions = {}) {
     this.baseDir = opts.baseDir ?? path.join(os.homedir(), ".review-hub");
     this.maxFileSize = opts.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
     this.excludeGlobs = opts.excludeGlobs ?? [];
     this.excludeRes = this.excludeGlobs.map(globToRegExp);
+
+    const mode = opts.backend ?? "auto";
+    const driver = mode === "json" ? undefined : openDatabase(path.join(this.baseDir, "hub.db"));
+    if (mode === "sqlite" && !driver) {
+      throw new Error("Review Hub: the sqlite backend was requested but node:sqlite is unavailable.");
+    }
+    this.backend =
+      driver !== undefined
+        ? new SqliteBackend(driver, this.baseDir)
+        : new JsonBackend(this.baseDir);
   }
 
-  // ---- paths ----
-
-  private wsDir(workspace: string): string {
-    return path.join(this.baseDir, "workspaces", workspaceKey(workspace));
+  /** Release backend resources (the SQLite connection). Safe to call twice. */
+  dispose(): void {
+    this.backend.dispose();
   }
 
-  private checkpointPath(workspace: string): string {
-    return path.join(this.wsDir(workspace), "checkpoint.json");
-  }
-
-  private changesDir(workspace: string): string {
-    return path.join(this.wsDir(workspace), "changes");
-  }
-
-  private baselinesDir(workspace: string): string {
-    return path.join(this.wsDir(workspace), "baselines");
-  }
-
-  private baselineFile(workspace: string, hash: string): string {
-    return path.join(this.baselinesDir(workspace), hash);
-  }
+  // ---- paths / storage delegation ----
 
   private isExcluded(relPath: string): boolean {
     const p = toPosix(relPath);
     return this.excludeRes.some((re) => re.test(p));
   }
 
-  // ---- baseline storage ----
-
   private putBaseline(workspace: string, content: string): string {
-    const hash = hashContent(content);
-    const file = this.baselineFile(workspace, hash);
-    if (!fs.existsSync(file)) {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      writeFileAtomic(file, content);
-    }
-    return hash;
+    return this.backend.putBaseline(workspace, content);
   }
 
   private getBaseline(workspace: string, hash: string): string {
-    try {
-      return fs.readFileSync(this.baselineFile(workspace, hash), "utf8");
-    } catch {
-      return "";
-    }
+    return this.backend.getBaseline(workspace, hash);
   }
 
-  // ---- checkpoint ----
-
-  readCheckpoint(workspace: string): CheckpointFile | undefined {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.checkpointPath(workspace), "utf8")) as CheckpointFile;
-      if (parsed && typeof parsed === "object" && parsed.files) {
-        return parsed;
-      }
-    } catch {
-      // none yet
-    }
-    return undefined;
+  readCheckpoint(workspace: string): CheckpointRecord | undefined {
+    return this.backend.readCheckpoint(workspace);
   }
 
   checkpointInfo(workspace: string): CheckpointInfo | undefined {
@@ -263,9 +229,49 @@ export class ChangeStore {
     return { workspace, setAt: cp.setAt, files: Object.keys(cp.files).length };
   }
 
-  private writeCheckpoint(workspace: string, cp: CheckpointFile): void {
-    fs.mkdirSync(this.wsDir(workspace), { recursive: true });
-    writeFileAtomic(this.checkpointPath(workspace), `${JSON.stringify(cp, null, 2)}\n`);
+  private writeCheckpoint(workspace: string, cp: CheckpointRecord): void {
+    this.backend.writeCheckpoint(cp);
+  }
+
+  private writeChange(cs: ChangeSet): void {
+    this.backend.writeChange(cs);
+  }
+
+  getChange(workspace: string, id: string): ChangeSet | undefined {
+    return this.backend.getChange(workspace, id);
+  }
+
+  findById(changeId: string): ChangeSet | undefined {
+    return this.backend.findById(changeId);
+  }
+
+  findChangeByPath(workspace: string, relPath: string): ChangeSet | undefined {
+    return this.backend.findChangeByPath(workspace, relPath);
+  }
+
+  private removeChange(cs: ChangeSet): void {
+    this.backend.removeChange(cs.workspace, cs.id);
+  }
+
+  /** Unresolved change sets, full objects — for the sidebar panel and the review tab. */
+  listChangeSets(workspace: string): ChangeSet[] {
+    return this.backend.listChangeSets(workspace);
+  }
+
+  listChanges(workspace: string): ChangeSummary[] {
+    return this.backend.listChangeSets(workspace).map((cs) => summarize(cs));
+  }
+
+  listKnownWorkspaces(): string[] {
+    return this.backend.knownWorkspaces();
+  }
+
+  clearChanges(workspace: string): void {
+    this.backend.clearChanges(workspace);
+  }
+
+  pruneResolved(maxAgeMs = 5 * 60_000): void {
+    this.backend.pruneResolved(maxAgeMs);
   }
 
   /**
@@ -345,7 +351,7 @@ export class ChangeStore {
     };
 
     await walk(workspace);
-    const cp: CheckpointFile = { workspace, setAt: Date.now(), files, truncated };
+    const cp: CheckpointRecord = { workspace, setAt: Date.now(), files, truncated };
     this.writeCheckpoint(workspace, cp);
     // A fresh checkpoint supersedes all outstanding change sets.
     this.clearChanges(workspace);
@@ -362,203 +368,7 @@ export class ChangeStore {
   }
 
   clearCheckpoint(workspace: string): void {
-    deleteFileSafe(this.checkpointPath(workspace));
-    this.clearChanges(workspace);
-  }
-
-  // ---- change sets ----
-
-  private changePath(workspace: string, id: string): string {
-    return path.join(this.changesDir(workspace), `${id}.json`);
-  }
-
-  private writeChange(cs: ChangeSet): void {
-    fs.mkdirSync(this.changesDir(cs.workspace), { recursive: true });
-    writeFileAtomic(this.changePath(cs.workspace, cs.id), `${JSON.stringify(cs, null, 2)}\n`);
-    this.invalidate(cs.workspace);
-  }
-
-  getChange(workspace: string, id: string): ChangeSet | undefined {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.changePath(workspace, id), "utf8")) as ChangeSet;
-      return parsed && parsed.id ? parsed : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  findChangeByPath(workspace: string, relPath: string): ChangeSet | undefined {
-    const p = toPosix(relPath);
-    return this.listChangesRaw(workspace).find((cs) => cs.path === p);
-  }
-
-  /**
-   * In-memory cache of change sets per workspace. CodeLens and the tree call the list
-   * methods on every keystroke / render, so re-reading every JSON from disk each time
-   * is wasteful.
-   *
-   * The cache is revalidated against the changes directory's mtime, because the store
-   * is file-backed and shared: another VS Code window (or the hub process) may write
-   * changes we must see. A cheap `stat` per read is far less work than re-parsing every
-   * JSON.
-   */
-  private cache = new Map<string, { at: number; items: ChangeSet[] }>();
-
-  private invalidate(workspace: string): void {
-    this.cache.delete(workspace);
-  }
-
-  private changesDirMtime(workspace: string): number {
-    try {
-      return fs.statSync(this.changesDir(workspace)).mtimeMs;
-    } catch {
-      return 0;
-    }
-  }
-
-  private listChangesRaw(workspace: string): ChangeSet[] {
-    const mtime = this.changesDirMtime(workspace);
-    const cached = this.cache.get(workspace);
-    if (cached && cached.at === mtime) {
-      return cached.items;
-    }
-    const dir = this.changesDir(workspace);
-    let names: string[];
-    try {
-      names = fs.readdirSync(dir).filter((n) => n.endsWith(".json"));
-    } catch {
-      this.cache.set(workspace, { at: mtime, items: [] });
-      return [];
-    }
-    const out: ChangeSet[] = [];
-    for (const name of names) {
-      try {
-        const cs = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")) as ChangeSet;
-        // Resolved sets are kept only so an open review tab can render its final state;
-        // they are not "changes awaiting review" any more.
-        if (cs && cs.id && cs.status !== "resolved") {
-          out.push(cs);
-        }
-      } catch {
-        // skip corrupt
-      }
-    }
-    // One row per file, always the latest edit. A file can accumulate several change sets
-    // (an older build wrote a fresh one per observation), and showing them all both
-    // duplicates the file in the tree and makes `findChangeByPath` pick an arbitrary one.
-    // Keeping the most recently updated set means the review always shows the final state.
-    const latest = new Map<string, ChangeSet>();
-    for (const cs of out) {
-      const prev = latest.get(cs.path);
-      if (!prev || (cs.updatedAt ?? 0) >= (prev.updatedAt ?? 0)) {
-        latest.set(cs.path, cs);
-      }
-    }
-    const items = [...latest.values()].sort((a, b) => a.path.localeCompare(b.path));
-    this.cache.set(workspace, { at: mtime, items });
-    return items;
-  }
-
-  listChanges(workspace: string): ChangeSummary[] {
-    return this.listChangesRaw(workspace).map((cs) => summarize(cs));
-  }
-
-  /**
-   * Every workspace that has persisted state (a checkpoint or a change set). Lets a
-   * window show projects other windows are working in, since the store is shared.
-   */
-  listKnownWorkspaces(): string[] {
-    const root = path.join(this.baseDir, "workspaces");
-    let keys: string[];
-    try {
-      keys = fs.readdirSync(root);
-    } catch {
-      return [];
-    }
-    const out: string[] = [];
-    for (const key of keys) {
-      const dir = path.join(root, key);
-      // Prefer the workspace path recorded in the checkpoint; fall back to change sets.
-      try {
-        const cp = JSON.parse(fs.readFileSync(path.join(dir, "checkpoint.json"), "utf8")) as { workspace?: string };
-        if (cp?.workspace) {
-          out.push(cp.workspace);
-          continue;
-        }
-      } catch {
-        // no checkpoint
-      }
-      try {
-        const names = fs.readdirSync(path.join(dir, "changes")).filter((n) => n.endsWith(".json"));
-        if (names.length > 0) {
-          const cs = JSON.parse(fs.readFileSync(path.join(dir, "changes", names[0]), "utf8")) as { workspace?: string };
-          if (cs?.workspace) {
-            out.push(cs.workspace);
-          }
-        }
-      } catch {
-        // nothing usable
-      }
-    }
-    return out;
-  }
-
-  clearChanges(workspace: string): void {
-    const dir = this.changesDir(workspace);
-    try {
-      for (const name of fs.readdirSync(dir)) {
-        deleteFileSafe(path.join(dir, name));
-      }
-    } catch {
-      // none
-    }
-    this.invalidate(workspace);
-  }
-
-  /**
-   * Drop resolved change sets older than `maxAgeMs`. They are kept after a decision only
-   * so an open review tab can render its final state; once the tab is gone or stale they
-   * are just disk clutter.
-   */
-  pruneResolved(maxAgeMs = 5 * 60_000): void {
-    const root = path.join(this.baseDir, "workspaces");
-    let keys: string[];
-    try {
-      keys = fs.readdirSync(root);
-    } catch {
-      return;
-    }
-    const now = Date.now();
-    for (const key of keys) {
-      const dir = path.join(root, key, "changes");
-      let names: string[];
-      try {
-        names = fs.readdirSync(dir);
-      } catch {
-        continue;
-      }
-      let removed = false;
-      for (const name of names) {
-        if (!name.endsWith(".json")) {
-          continue;
-        }
-        const file = path.join(dir, name);
-        try {
-          const cs = JSON.parse(fs.readFileSync(file, "utf8")) as ChangeSet;
-          // `>=` rather than `>` so `pruneResolved(0)` reliably drops a set that was just
-          // resolved in the same millisecond ("older than 0ms" holds for anything).
-          if (cs.status === "resolved" && now - (cs.updatedAt ?? 0) >= maxAgeMs) {
-            deleteFileSafe(file);
-            removed = true;
-          }
-        } catch {
-          // skip
-        }
-      }
-      if (removed) {
-        this.cache.delete(path.join(root, key));
-      }
-    }
+    this.backend.clearCheckpoint(workspace);
   }
 
   /**
@@ -842,11 +652,6 @@ export class ChangeStore {
     return cs;
   }
 
-  private removeChange(cs: ChangeSet): void {
-    deleteFileSafe(this.changePath(cs.workspace, cs.id));
-    this.invalidate(cs.workspace);
-  }
-
   // ---- decisions ----
 
   private decide(changeId: string, hunkIds: string[] | undefined, decision: "accepted" | "rejected"): DecideResult {
@@ -866,30 +671,6 @@ export class ChangeStore {
 
   reject(changeId: string, hunkIds?: string[]): DecideResult {
     return this.decide(changeId, hunkIds, "rejected");
-  }
-
-  findById(changeId: string): ChangeSet | undefined {
-    // changeId is unique per workspace; search the workspaces we know about.
-    const workspacesDir = path.join(this.baseDir, "workspaces");
-    let keys: string[];
-    try {
-      keys = fs.readdirSync(workspacesDir);
-    } catch {
-      return undefined;
-    }
-    for (const key of keys) {
-      const dir = path.join(workspacesDir, key, "changes");
-      const file = path.join(dir, `${changeId}.json`);
-      try {
-        const cs = JSON.parse(fs.readFileSync(file, "utf8")) as ChangeSet;
-        if (cs && cs.id === changeId) {
-          return cs;
-        }
-      } catch {
-        // try next
-      }
-    }
-    return undefined;
   }
 
   /**

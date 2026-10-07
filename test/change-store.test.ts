@@ -220,3 +220,31 @@ test("extension allowlist skips non-source files", async () => {
   });
   assert.equal(info.files, 1, "only the .ts file should be captured");
 });
+
+test("listChangeSets returns full change sets for the panel and the review tab", async () => {
+  const ws = makeWorkspace();
+  const store = new ChangeStore({ baseDir: tmp() });
+  await store.setCheckpoint(ws, { maxFileSize: 1e9, excludeGlobs: [] });
+  const cs = store.propose(ws, "a.txt", "one\nTWO\nthree\n");
+
+  const sets = store.listChangeSets(ws);
+  assert.equal(sets.length, 1);
+  assert.equal(sets[0].id, cs.id);
+  assert.equal(sets[0].hunks.length, 1, "hunks come with it, not just counts");
+  assert.equal(sets[0].baseline, "one\ntwo\nthree\n", "the baseline travels too");
+
+  store.accept(cs.id);
+  assert.equal(store.listChangeSets(ws).length, 0, "a resolved set is not listed");
+  store.dispose();
+});
+
+test("the JSON backend can be selected explicitly and behaves identically", async () => {
+  const ws = makeWorkspace();
+  const store = new ChangeStore({ baseDir: tmp(), backend: "json" });
+  await store.setCheckpoint(ws, { maxFileSize: 1e9, excludeGlobs: [] });
+  const cs = store.propose(ws, "a.txt", "one\nTWO\nthree\n");
+  store.accept(cs.id);
+  assert.equal(fs.readFileSync(path.join(ws, "a.txt"), "utf8"), "one\nTWO\nthree\n");
+  assert.equal(store.listChanges(ws).length, 0);
+  store.dispose();
+});
