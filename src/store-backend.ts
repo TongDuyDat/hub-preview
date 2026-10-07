@@ -328,3 +328,303 @@ export class JsonBackend implements StoreBackend {
     this.cache.clear();
   }
 }
+
+// ---- SQLite backend ---------------------------------------------------------
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS checkpoints (
+  workspace  TEXT PRIMARY KEY,
+  set_at     INTEGER NOT NULL,
+  files_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS changes (
+  id              TEXT PRIMARY KEY,
+  workspace       TEXT NOT NULL,
+  path            TEXT NOT NULL,
+  abs_path        TEXT NOT NULL,
+  origin          TEXT NOT NULL,
+  applied         INTEGER NOT NULL,
+  status          TEXT NOT NULL,
+  eol             TEXT NOT NULL,
+  bom             INTEGER NOT NULL,
+  final_newline   INTEGER NOT NULL,
+  binary          INTEGER NOT NULL,
+  baseline        TEXT NOT NULL,
+  proposed        TEXT NOT NULL,
+  baseline_exists INTEGER NOT NULL,
+  proposed_exists INTEGER NOT NULL,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  UNIQUE (workspace, path)
+);
+CREATE TABLE IF NOT EXISTS hunks (
+  change_id TEXT NOT NULL REFERENCES changes(id) ON DELETE CASCADE,
+  id        TEXT NOT NULL,
+  ordinal   INTEGER NOT NULL,
+  old_start INTEGER NOT NULL,
+  new_start INTEGER NOT NULL,
+  old_lines TEXT NOT NULL,
+  new_lines TEXT NOT NULL,
+  decision  TEXT NOT NULL,
+  PRIMARY KEY (change_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_changes_workspace ON changes(workspace);
+CREATE INDEX IF NOT EXISTS idx_changes_status    ON changes(workspace, status);
+`;
+
+interface ChangeRow {
+  id: string;
+  workspace: string;
+  path: string;
+  abs_path: string;
+  origin: string;
+  applied: number;
+  status: string;
+  eol: string;
+  bom: number;
+  final_newline: number;
+  binary: number;
+  baseline: string;
+  proposed: string;
+  baseline_exists: number;
+  proposed_exists: number;
+  created_at: number;
+  updated_at: number;
+}
+
+interface HunkRow {
+  change_id: string;
+  id: string;
+  ordinal: number;
+  old_start: number;
+  new_start: number;
+  old_lines: string;
+  new_lines: string;
+  decision: string;
+}
+
+function rowToChangeSet(row: ChangeRow, hunks: HunkRow[]): ChangeSet {
+  return {
+    id: row.id,
+    workspace: row.workspace,
+    path: row.path,
+    absPath: row.abs_path,
+    origin: row.origin as ChangeSet["origin"],
+    applied: row.applied === 1,
+    status: row.status as ChangeSet["status"],
+    eol: row.eol === "\r\n" ? "\r\n" : "\n",
+    bom: row.bom === 1,
+    finalNewline: row.final_newline === 1,
+    binary: row.binary === 1,
+    baseline: row.baseline,
+    proposed: row.proposed,
+    baselineExists: row.baseline_exists === 1,
+    proposedExists: row.proposed_exists === 1,
+    hunks: hunks.map((h) => ({
+      id: h.id,
+      oldStart: h.old_start,
+      oldLines: JSON.parse(h.old_lines) as string[],
+      newStart: h.new_start,
+      newLines: JSON.parse(h.new_lines) as string[],
+      decision: h.decision as ChangeSet["hunks"][number]["decision"],
+    })),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export class SqliteBackend implements StoreBackend {
+  private blobs: BaselineBlobs;
+
+  constructor(private driver: SqlDriver, baseDir?: string) {
+    this.blobs = new BaselineBlobs(baseDir ?? path.join(process.env.HOME ?? "", ".review-hub"));
+    this.driver.exec(SCHEMA);
+  }
+
+  // ---- checkpoints ----
+
+  readCheckpoint(workspace: string): CheckpointRecord | undefined {
+    const row = this.driver.get<{ workspace: string; set_at: number; files_json: string }>(
+      "SELECT workspace, set_at, files_json FROM checkpoints WHERE workspace = ?",
+      workspace,
+    );
+    if (!row) {
+      return undefined;
+    }
+    return {
+      workspace: row.workspace,
+      setAt: row.set_at,
+      files: JSON.parse(row.files_json) as Record<string, string>,
+    };
+  }
+
+  writeCheckpoint(cp: CheckpointRecord): void {
+    this.driver.run(
+      "INSERT OR REPLACE INTO checkpoints (workspace, set_at, files_json) VALUES (?, ?, ?)",
+      cp.workspace,
+      cp.setAt,
+      JSON.stringify(cp.files),
+    );
+  }
+
+  clearCheckpoint(workspace: string): void {
+    this.driver.run("DELETE FROM checkpoints WHERE workspace = ?", workspace);
+    this.clearChanges(workspace);
+  }
+
+  knownWorkspaces(): string[] {
+    const rows = this.driver.all<{ workspace: string }>(
+      "SELECT workspace FROM checkpoints UNION SELECT workspace FROM changes",
+    );
+    return rows.map((r) => r.workspace);
+  }
+
+  // ---- changes ----
+
+  writeChange(cs: ChangeSet): void {
+    this.driver.transaction(() => {
+      // `INSERT OR REPLACE` on the unique (workspace, path) row. The id is derived
+      // deterministically from (workspace, path), so a re-propose of the same file
+      // replaces its own row rather than colliding with it.
+      this.driver.run(
+        `INSERT OR REPLACE INTO changes
+           (id, workspace, path, abs_path, origin, applied, status, eol, bom, final_newline,
+            binary, baseline, proposed, baseline_exists, proposed_exists, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        cs.id,
+        cs.workspace,
+        cs.path,
+        cs.absPath,
+        cs.origin,
+        Number(cs.applied),
+        cs.status,
+        cs.eol,
+        Number(cs.bom),
+        Number(cs.finalNewline),
+        Number(cs.binary),
+        cs.baseline,
+        cs.proposed,
+        Number(cs.baselineExists),
+        Number(cs.proposedExists),
+        cs.createdAt,
+        cs.updatedAt,
+      );
+      // Delete explicitly rather than relying on ON DELETE CASCADE firing for a REPLACE.
+      this.driver.run("DELETE FROM hunks WHERE change_id = ?", cs.id);
+      cs.hunks.forEach((h, ordinal) => {
+        this.driver.run(
+          `INSERT INTO hunks (change_id, id, ordinal, old_start, new_start, old_lines, new_lines, decision)
+           VALUES (?,?,?,?,?,?,?,?)`,
+          cs.id,
+          h.id,
+          ordinal,
+          h.oldStart,
+          h.newStart,
+          JSON.stringify(h.oldLines),
+          JSON.stringify(h.newLines),
+          h.decision,
+        );
+      });
+    });
+  }
+
+  private hunksFor(ids: string[]): Map<string, HunkRow[]> {
+    const out = new Map<string, HunkRow[]>();
+    if (ids.length === 0) {
+      return out;
+    }
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.driver.all<HunkRow>(
+      `SELECT * FROM hunks WHERE change_id IN (${placeholders}) ORDER BY change_id, ordinal`,
+      ...ids,
+    );
+    for (const row of rows) {
+      const list = out.get(row.change_id) ?? [];
+      list.push(row);
+      out.set(row.change_id, list);
+    }
+    return out;
+  }
+
+  getChange(workspace: string, id: string): ChangeSet | undefined {
+    const row = this.driver.get<ChangeRow>(
+      "SELECT * FROM changes WHERE workspace = ? AND id = ?",
+      workspace,
+      id,
+    );
+    if (!row) {
+      return undefined;
+    }
+    return rowToChangeSet(row, this.hunksFor([id]).get(id) ?? []);
+  }
+
+  findById(id: string): ChangeSet | undefined {
+    const row = this.driver.get<ChangeRow>("SELECT * FROM changes WHERE id = ?", id);
+    if (!row) {
+      return undefined;
+    }
+    return rowToChangeSet(row, this.hunksFor([id]).get(id) ?? []);
+  }
+
+  findChangeByPath(workspace: string, relPath: string): ChangeSet | undefined {
+    const row = this.driver.get<ChangeRow>(
+      "SELECT * FROM changes WHERE workspace = ? AND path = ? AND status != 'resolved'",
+      workspace,
+      relPath.split(path.sep).join("/"),
+    );
+    if (!row) {
+      return undefined;
+    }
+    return rowToChangeSet(row, this.hunksFor([row.id]).get(row.id) ?? []);
+  }
+
+  listChangeSets(workspace: string): ChangeSet[] {
+    const rows = this.driver.all<ChangeRow>(
+      "SELECT * FROM changes WHERE workspace = ? AND status != 'resolved' ORDER BY path",
+      workspace,
+    );
+    if (rows.length === 0) {
+      return [];
+    }
+    const hunks = this.hunksFor(rows.map((r) => r.id));
+    const out = rows.map((r) => rowToChangeSet(r, hunks.get(r.id) ?? []));
+    // UNIQUE (workspace, path) already guarantees one row per file; the dedupe mirrors
+    // JsonBackend so the two backends cannot drift if that constraint ever changes.
+    const latest = new Map<string, ChangeSet>();
+    for (const cs of out) {
+      const prev = latest.get(cs.path);
+      if (!prev || (cs.updatedAt ?? 0) >= (prev.updatedAt ?? 0)) {
+        latest.set(cs.path, cs);
+      }
+    }
+    return [...latest.values()].sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  removeChange(workspace: string, id: string): void {
+    this.driver.run("DELETE FROM changes WHERE workspace = ? AND id = ?", workspace, id);
+  }
+
+  clearChanges(workspace: string): void {
+    this.driver.run("DELETE FROM changes WHERE workspace = ?", workspace);
+  }
+
+  pruneResolved(maxAgeMs: number): void {
+    // `<=` (not `<`) to match JsonBackend's `now - updatedAt >= maxAgeMs`, so
+    // `pruneResolved(0)` drops a set resolved in the same millisecond in both backends.
+    this.driver.run("DELETE FROM changes WHERE status = 'resolved' AND updated_at <= ?", Date.now() - maxAgeMs);
+  }
+
+  // ---- baselines (content-addressed blobs on disk, same as JsonBackend) ----
+
+  putBaseline(workspace: string, content: string): string {
+    return this.blobs.put(workspace, content);
+  }
+
+  getBaseline(workspace: string, hash: string): string {
+    return this.blobs.get(workspace, hash);
+  }
+
+  dispose(): void {
+    this.driver.close();
+  }
+}

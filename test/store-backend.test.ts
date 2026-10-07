@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { JsonBackend, type StoreBackend } from "../src/store-backend";
+import { JsonBackend, SqliteBackend, type StoreBackend } from "../src/store-backend";
+import { openDatabase } from "../src/sqlite";
 import type { ChangeSet } from "../src/types";
 
 function tmp(): string {
@@ -46,6 +47,12 @@ function changeSet(over: Partial<ChangeSet> = {}): ChangeSet {
 /** Every assertion in this file runs against each backend, so they cannot drift. */
 function eachBackend(run: (name: string, make: () => StoreBackend) => void): void {
   run("JsonBackend", () => new JsonBackend(tmp()));
+  run("SqliteBackend", () => {
+    const dir = tmp();
+    const driver = openDatabase(path.join(dir, "hub.db"));
+    assert.ok(driver, "node:sqlite must be available for the SQLite backend test");
+    return new SqliteBackend(driver!);
+  });
 }
 
 eachBackend((name, make) => {
