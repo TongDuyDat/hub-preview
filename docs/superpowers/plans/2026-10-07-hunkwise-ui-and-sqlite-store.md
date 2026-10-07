@@ -2390,12 +2390,14 @@ Expected: no `ExperimentalWarning: SQLite is an experimental feature` line, and 
 
 **Files:**
 - Modify: `package.json` (`engines.vscode`, remove dead `view/item/context` menus)
-- Modify: `src/extension.ts` (dispose the store)
-- Modify: `README.md` (the "Phát triển" section's test count — see Task 14 for the full doc pass)
+- Modify: `src/hub-server.ts` (release the store in `stop()`)
+- Modify: `src/store-backend.ts` (make `SqliteBackend.dispose` idempotent)
 
 **Interfaces:**
 - Consumes: nothing new.
 - Produces: `engines.vscode` = `^1.103.0`; `review-hub.changes` no longer declares `viewItem` context menus (it is a webview, not a tree).
+
+**Note:** `src/extension.ts` and `README.md` are **not** edited by this task. The extension's existing `dispose` subscription already calls `hub.stop()`, and the store is released inside `HubServer.stop()` (Step 3). The README is Task 14's.
 
 - [ ] **Step 1: Bump the engine floor**
 
@@ -2462,28 +2464,9 @@ After the edit, `contributes.menus` must be exactly:
     }
 ```
 
-- [ ] **Step 3: Dispose the store on deactivate**
+- [ ] **Step 3: Release the store in `HubServer.stop()`**
 
-In `src/extension.ts`, inside the final `{ dispose: () => { ... } }` subscription, add the store disposal after the hub stop:
-
-```ts
-    {
-      dispose: () => {
-        disposed = true;
-        if (!isHost) {
-          return;
-        }
-        void hub.stop();
-        // Only clear the entry if it is still ours; another window may have taken over.
-        const current = registry.readEntry();
-        if (current && current.pid === process.pid) {
-          registry.clearEntry();
-        }
-      },
-    },
-```
-
-The SQLite connection is closed by the `HubServer`'s store owner. Add to `HubServer` a `stop()` tail — in `src/hub-server.ts`, at the end of `stop()`:
+The SQLite connection is closed by the `HubServer`'s store owner — no `src/extension.ts` change is needed, because its existing `dispose` subscription already calls `hub.stop()`. In `src/hub-server.ts`, add a tail to `stop()`:
 
 ```ts
   async stop(): Promise<void> {
