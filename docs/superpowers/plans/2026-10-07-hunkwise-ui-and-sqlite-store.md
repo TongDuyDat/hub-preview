@@ -2875,11 +2875,14 @@ The user chose to delete the old merged view rather than keep it alongside the r
 **Files:**
 - Modify: `src/content-provider.ts` (drop the `merged` authority, `mergedUri`, and `mergedText`)
 - Modify: `src/diff-view.ts` (drop the merged CodeLens branch, `MergedDecorator`, `DiffView.open`, and the merged half of `retitle`)
+- Modify: `src/extension.ts` (re-point the two `DiffView.open` callers — see Step 4)
 - Modify: `test/inline-review.test.ts` (re-point the merged tests at `buildReviewState`)
 
 **Interfaces:**
 - Consumes: `buildReviewState` from `src/review-panel-state.ts`.
 - Produces: `ChangeContentProvider` keeps `SCHEME`, `baselineUri`, `proposedUri`, `refresh(changeId)`, `provideTextDocumentContent`, `onDidChange`, `dispose`. `DiffView` keeps `openSideBySide(changeId)`, `titleFor(changeId)`, `refresh(changeId)`, `dispose()`, and `HunkCodeLensProvider` keeps `refresh()` and `provideCodeLenses(document)`.
+
+**Note:** `DiffView.open` has two callers in `src/extension.ts` — the auto-open flush (`~line 232`) and the `review-hub.openDiff` command (`~line 475`). Deleting `open` without touching them would not typecheck, so Step 4 re-points both at `openSideBySide` as an interim; Task 13 re-points them at the review tab once it exists.
 
 - [ ] **Step 1: Rewrite the merged tests against the review-tab state**
 
@@ -3014,10 +3017,48 @@ test("a decided hunk is visibly decided in the review state", () => {
 
 Keep the `onDidChange` regression test and the `provider.mergedText` assertions removed from it — that test only uses `provider.refresh`, so it is unchanged.
 
+Add one test for the surviving `HunkCodeLensProvider` (all three old CodeLens tests are being replaced, but the provider itself lives on — its `file`-scheme branch is the Accept/Reject surface on the REAL file, which must not lose its regression guard). Append:
+
+```ts
+test("the real file carries Accept/Reject CodeLens, and a decided hunk looks decided", () => {
+  // Regression guard for "I click Accept and nothing happens", on the real file: this is the
+  // provider's `file`-scheme branch, the only Accept/Reject surface outside the webviews.
+  // (The old guard drove the merged authority, which this task removes.)
+  const ws = tmp();
+  process.env.VSCODE_STUB_WORKSPACE = JSON.stringify([{ uri: { fsPath: ws }, name: "ws", index: 0 }]);
+  const store = new ChangeStore({ baseDir: tmp() });
+  const pad = "pad\n".repeat(15);
+  fs.writeFileSync(path.join(ws, "demo.py"), `A = 1\n${pad}B = 2\n`);
+  const cs = store.propose(ws, "demo.py", `A = 111\n${pad}B = 222\n`);
+  assert.equal(cs.hunks.length, 2, "two hunks, so one can stay pending");
+
+  const lenses = new HunkCodeLensProvider(store);
+  const doc = {
+    uri: vscode.Uri.file(path.join(ws, "demo.py")),
+    lineCount: 100,
+  } as unknown as vscode.TextDocument;
+
+  const titles = (): string[] =>
+    lenses.provideCodeLenses(doc).map((l) => String((l.command as { title?: string } | undefined)?.title ?? ""));
+
+  assert.ok(titles().some((t) => t.includes("$(check) Accept")), "pending shows the Accept button");
+  assert.ok(!titles().some((t) => t.includes("Accepted")), "nothing is accepted yet");
+
+  // Accept only the first hunk; the second stays pending, so the set is not resolved.
+  store.accept(cs.id, [cs.hunks[0].id]);
+  const after = titles();
+  assert.ok(after.some((t) => t.includes("Accepted")), "the accepted hunk shows an 'Accepted' badge");
+  assert.ok(after.some((t) => t.includes("Undo")), "the accepted hunk offers Undo");
+  assert.ok(after.some((t) => t.includes("$(check) Accept")), "the still-pending hunk keeps its Accept button");
+});
+```
+
+This keeps `vscode` (the stub) and `HunkCodeLensProvider` imported — without it, both imports would be dead.
+
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test`
-Expected: the rewritten tests pass already (they only use `buildReviewState`), and `npm run typecheck` still succeeds because `mergedUri`/`mergedText` still exist. This step is the checkpoint: run `npm test` and confirm `# pass 175`, `# fail 0` **before** deleting the merged view, so the new tests are proven against the old code.
+Expected: the rewritten tests pass already (they only use `buildReviewState`), and `npm run typecheck` still succeeds because `mergedUri`/`mergedText` still exist. This step is the checkpoint: run `npm test` and confirm `# pass 176`, `# fail 0` **before** deleting the merged view, so the new tests are proven against the old code.
 
 - [ ] **Step 3: Delete the merged authority from the content provider**
 
@@ -3025,6 +3066,7 @@ In `src/content-provider.ts`:
 
 - Update the header comment to describe only the two sides of a diff.
 - Delete the `buildMergedView` import.
+- Delete the now-unused `import { splitContent } from "./hunk-diff";` — `splitContent` was only used by `mergedText`. (Not strictly required for the typecheck — `noUnusedLocals` is off — but leaving it is dead code.)
 - Delete the `if (side === "merged") { return this.mergedText(changeId); }` branch from `provideTextDocumentContent`.
 - Delete the whole `mergedText(changeId: string): string` method.
 - Delete `mergedUri(changeId: string): vscode.Uri`.
@@ -3096,10 +3138,15 @@ In `src/diff-view.ts`:
 
 - Update the class doc comment on `DiffView` to say it owns the side-by-side diff only.
 
+- Re-point the two `DiffView.open` callers in `src/extension.ts`, or the typecheck fails once `open` is gone. Both become the side-by-side diff as an interim (Task 13 re-points them at the review tab):
+
+  - In `flushAutoOpen`, replace `await diffView.open(cs.id);` with `await diffView.openSideBySide(cs.id);` and update the comment above it ("Open the side-by-side diff beside the editor, without stealing focus.").
+  - In the `review-hub.openDiff` command, replace `await diffView.open(changeId);` with `await diffView.openSideBySide(changeId);`.
+
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 175`, `# fail 0` (the rewritten `inline-review.test.ts` tests replace the old ones one-for-one). No test references `review-hub://merged` any more.
+Expected: typecheck clean; `# pass 176`, `# fail 0` (the rewritten `inline-review.test.ts` tests replace the old ones one-for-one, plus the new `file`-scheme CodeLens guard). No test references `review-hub://merged` any more.
 
 ---
 
@@ -3762,7 +3809,7 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 179`, `# fail 0` (175 + 4 new panel tests).
+Expected: typecheck clean; `# pass 180`, `# fail 0` (176 + 4 new panel tests).
 
 ---
 
@@ -4256,7 +4303,7 @@ function titleFor(cs: ChangeSet): string {
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 185`, `# fail 0` (179 + 6 new tab tests).
+Expected: typecheck clean; `# pass 186`, `# fail 0` (180 + 6 new tab tests).
 
 ---
 
@@ -4481,6 +4528,15 @@ Re-point the commands:
 
 `review-hub.openSideBySide` and `review-hub.openFile` are unchanged apart from the `FileNode` type.
 
+Also re-point the auto-open flush at the review tab (Task 10 left it on the interim `openSideBySide`). In `flushAutoOpen`, replace `await diffView.openSideBySide(cs.id);` with:
+
+```ts
+        // Open the review tab beside the editor, without stealing focus.
+        openReviewTab(cs.id);
+```
+
+(Note: `openReviewTab` is assigned before any flush can run, so calling it here is safe. The flush no longer needs `await` for the open itself, but keep the surrounding `try/catch` and the `refreshUi()` call.)
+
 Replace `decideFile`:
 
 ```ts
@@ -4534,7 +4590,7 @@ Expected: `no references`.
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 185`, `# fail 0`. `test/extension.test.ts` now asserts `review-hub.changes` is a webview view.
+Expected: typecheck clean; `# pass 186`, `# fail 0`. `test/extension.test.ts` now asserts `review-hub.changes` is a webview view.
 
 - [ ] **Step 7: Verify the bundle builds and ships the media**
 
@@ -4568,10 +4624,10 @@ In `docs/superpowers/specs/2026-10-07-hunkwise-ui-and-sqlite-store-design.md`:
 In `README.md`, the "Phát triển" section's comment:
 
 ```bash
-npm test            # 185 test: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e
+npm test            # 186 test: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e
 ```
 
-(120 before this work, 185 after — the plan's per-task checkpoints add 65.)
+(120 before this work, 186 after — the plan's per-task checkpoints add 66.)
 
 - [ ] **Step 3: Document the review-then-apply model in the README**
 
@@ -4638,7 +4694,7 @@ In `src/extension.ts`, find the `installInstructions` body and add these two lin
 - [ ] **Step 6: Verify the docs render and nothing else broke**
 
 Run: `npm run typecheck && npm test && grep -n "118" README.md docs/superpowers/specs/2026-10-07-hunkwise-ui-and-sqlite-store-design.md || echo "no stale 118"`
-Expected: typecheck clean; `# pass 185`, `# fail 0`; `no stale 118`.
+Expected: typecheck clean; `# pass 186`, `# fail 0`; `no stale 118`.
 
 ---
 
