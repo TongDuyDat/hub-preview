@@ -55,12 +55,18 @@ export function deleteFileSafe(absPath: string): void {
 }
 
 /**
- * Resolve a workspace-relative path and refuse anything that escapes the workspace.
+ * Resolve a path and refuse anything that escapes the workspace.
  * Returns null when the path is outside the workspace (path traversal guard).
+ *
+ * Accepts either form: an absolute path that already sits inside the workspace is used
+ * as-is, anything else is treated as workspace-relative. Both are then re-checked by
+ * containment, so a path like `/etc/passwd` (or `../secrets`) is still rejected.
  */
 export function resolveInside(workspace: string, relPath: string): string | null {
-  const normalizedRel = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
-  const abs = path.resolve(workspace, normalizedRel);
+  const normalized = relPath.replace(/\\/g, "/");
+  const abs = path.isAbsolute(normalized)
+    ? path.resolve(normalized)
+    : path.resolve(workspace, normalized.replace(/^\/+/, ""));
   const rel = path.relative(workspace, abs);
   if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
     return null;
