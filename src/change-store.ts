@@ -28,6 +28,8 @@ import {
   toPosix,
   encodeBaseline,
   decodeBaseline,
+  isEncodedBaseline,
+  isBinaryBuffer,
 } from "./file-snapshot";
 import { JsonBackend, SqliteBackend, type CheckpointRecord, type StoreBackend } from "./store-backend";
 import { openDatabase } from "./sqlite";
@@ -248,6 +250,33 @@ export class ChangeStore {
 
   private getBaseline(workspace: string, hash: string): string {
     return this.backend.getBaseline(workspace, hash);
+  }
+
+  /**
+   * Store raw bytes in the checkpoint slot, tagging the blob hash so the encoding is
+   * explicit. A checkpoint value is either a plain blob hash (utf8 text) or this
+   * `bin:`-tagged hash (base64 bytes) — never a value a reader has to sniff.
+   */
+  private putBytesBaseline(workspace: string, bytes: Buffer): string {
+    return "bin:" + this.putBaseline(workspace, encodeBaseline(bytes));
+  }
+
+  /**
+   * Store a baseline for a file's raw bytes, tagging the blob hash `bin:` **only when the
+   * content is genuinely binary**. Text content is stored as a plain utf8 blob, so the
+   * text path can read it back later: reserving the byte encoding for binary content is
+   * what keeps an oversize *text* file's baseline diffable after it shrinks below
+   * `maxFileSize` (otherwise the text path would see a `bin:` value and lose the baseline).
+   */
+  private putObservedBaseline(workspace: string, bytes: Buffer): string {
+    return isBinaryBuffer(bytes)
+      ? this.putBytesBaseline(workspace, bytes)
+      : this.putBaseline(workspace, bytes.toString("utf8"));
+  }
+
+  /** The blob hash inside a checkpoint value, plus whether it holds encoded bytes. */
+  private resolveCheckpointValue(value: string): { hash: string; encoded: boolean } {
+    return value.startsWith("bin:") ? { hash: value.slice(4), encoded: true } : { hash: value, encoded: false };
   }
 
   readCheckpoint(workspace: string): CheckpointRecord | undefined {
@@ -485,8 +514,15 @@ export class ChangeStore {
   private async baselineForObserve(workspace: string, relPath: string): Promise<{ content: string; exists: boolean }> {
     const rel = toPosix(relPath);
     const cp = this.readCheckpoint(workspace);
-    const hash = cp?.files[rel];
-    if (hash) {
+    const raw = cp?.files[rel];
+    if (raw) {
+      const { hash, encoded } = this.resolveCheckpointValue(raw);
+      if (encoded) {
+        // The slot holds raw bytes (base64), not text: line-diffing it would compare the
+        // new text against base64 garbage and then write that garbage back. An empty
+        // baseline is a whole-file diff, and it can never be written back as garbage.
+        return { content: "", exists: true };
+      }
       return { content: this.getBaseline(workspace, hash), exists: true };
     }
     const git = await readGitBaseline(workspace, rel);
@@ -505,8 +541,9 @@ export class ChangeStore {
    *
    * The string path (`baselineForObserve`) cannot be reused here: a utf8 round-trip of a
    * real binary mangles every invalid sequence, so comparing or restoring it would corrupt
-   * the file. Baselines are therefore stored as `b64:`-prefixed base64 (see
-   * `encodeBaseline`), and a plain utf8 blob written by `setCheckpoint` still decodes.
+   * the file. A genuinely binary baseline is stored `bin:`-tagged (see `putBytesBaseline`),
+   * while a plain utf8 blob written by `setCheckpoint` stays untagged — the tag, not a
+   * prefix sniff, says which encoding a value holds.
    */
   private async baselineBytesForObserve(
     workspace: string,
@@ -514,15 +551,20 @@ export class ChangeStore {
   ): Promise<{ bytes: Buffer; exists: boolean }> {
     const rel = toPosix(relPath);
     const cp = this.readCheckpoint(workspace);
-    const hash = cp?.files[rel];
-    if (hash) {
-      return { bytes: decodeBaseline(this.getBaseline(workspace, hash)), exists: true };
+    const raw = cp?.files[rel];
+    if (raw) {
+      const { hash, encoded } = this.resolveCheckpointValue(raw);
+      const stored = this.getBaseline(workspace, hash);
+      return {
+        bytes: encoded ? decodeBaseline(stored) : Buffer.from(stored, "utf8"),
+        exists: true,
+      };
     }
     const git = await readGitBaselineBytes(workspace, rel);
     if (git.isRepo && git.bytes !== null) {
       // Record it so later observations of the same file are consistent.
       const cpNow = this.readCheckpoint(workspace) ?? { workspace, setAt: Date.now(), files: {} };
-      cpNow.files[rel] = this.putBaseline(workspace, encodeBaseline(git.bytes));
+      cpNow.files[rel] = this.putObservedBaseline(workspace, git.bytes);
       this.writeCheckpoint(workspace, cpNow);
       return { bytes: git.bytes, exists: true };
     }
@@ -543,8 +585,13 @@ export class ChangeStore {
   private baselineFor(workspace: string, relPath: string, capture: boolean): { content: string; exists: boolean } {
     const rel = toPosix(relPath);
     const cp = this.readCheckpoint(workspace) ?? { workspace, setAt: Date.now(), files: {} };
-    const hash = cp.files[rel];
-    if (hash) {
+    const raw = cp.files[rel];
+    if (raw) {
+      const { hash, encoded } = this.resolveCheckpointValue(raw);
+      if (encoded) {
+        // Raw bytes, not text: an empty baseline (whole-file diff) is the safe answer.
+        return { content: "", exists: true };
+      }
       return { content: this.getBaseline(workspace, hash), exists: true };
     }
     if (!capture) {
@@ -696,6 +743,10 @@ export class ChangeStore {
       }
       return undefined;
     }
+    // Reserve the byte encoding for genuinely binary content: an oversize *text* file has
+    // a text baseline, so a later shrink back to the text path diffs it correctly instead
+    // of reading base64 as if it were file content.
+    const baseBinary = isBinaryBuffer(base.bytes);
     const cs: ChangeSet = {
       id: existing?.id ?? changeIdFor(workspace, rel),
       workspace,
@@ -707,7 +758,8 @@ export class ChangeStore {
       bom: false,
       finalNewline: false,
       binary: true,
-      baseline: encodeBaseline(base.bytes),
+      baseline: baseBinary ? encodeBaseline(base.bytes) : base.bytes.toString("utf8"),
+      baselineB64: baseBinary,
       proposed: "",
       baselineExists: base.exists,
       proposedExists: true,
@@ -766,7 +818,7 @@ export class ChangeStore {
     this.applyToDisk(cs, resolved, decision);
 
     if (fullyDecided) {
-      this.advanceBaseline(cs, resolved, decision);
+      this.advanceBaseline(cs, resolved);
       cs.status = "resolved";
       cs.updatedAt = Date.now();
       // Keep the resolved set on disk (instead of deleting it) so an open review tab can
@@ -800,7 +852,7 @@ export class ChangeStore {
     decision: "accepted" | "rejected",
   ): { eol: "\n" | "\r\n"; bom: boolean; finalNewline: boolean } {
     const baselineMeta = () => {
-      const base = splitContent(cs.baseline);
+      const base = cs.binary ? splitContent("") : splitContent(cs.baseline);
       return { eol: base.eol, bom: base.bom, finalNewline: base.finalNewline };
     };
     const proposedMeta = () => ({ eol: cs.eol, bom: cs.bom, finalNewline: cs.finalNewline });
@@ -841,7 +893,12 @@ export class ChangeStore {
       // baseline bytes exactly (or removes a file the agent created from nothing).
       if (decision === "rejected") {
         if (cs.baselineExists) {
-          writeFileAtomicBytes(cs.absPath, decodeBaseline(cs.baseline));
+          // The encoding is declared by `baselineB64`; when a backend did not persist that
+          // optional field (the SQLite row has no column for it), fall back to the
+          // `isEncodedBaseline` prefix check. `b64:`/`bin:` is unambiguous here because a
+          // text baseline is never written with that prefix (see `observeBinary`).
+          const encoded = cs.baselineB64 ?? isEncodedBaseline(cs.baseline);
+          writeFileAtomicBytes(cs.absPath, encoded ? decodeBaseline(cs.baseline) : Buffer.from(cs.baseline, "utf8"));
         } else {
           deleteFileSafe(cs.absPath);
         }
@@ -864,7 +921,7 @@ export class ChangeStore {
    * entry is kept, and with the same hash), while a fully rejected new file leaves
    * nothing (so the entry is dropped).
    */
-  private advanceBaseline(cs: ChangeSet, resolved: string, decision: "accepted" | "rejected"): void {
+  private advanceBaseline(cs: ChangeSet, resolved: string): void {
     const cp = this.readCheckpoint(cs.workspace);
     if (!cp) {
       return;
@@ -875,7 +932,7 @@ export class ChangeStore {
       // byte-exact, so the next observe compares equal and drops the change.
       const bytes = readFileBytes(cs.absPath);
       if (bytes) {
-        cp.files[cs.path] = this.putBaseline(cs.workspace, encodeBaseline(bytes));
+        cp.files[cs.path] = this.putObservedBaseline(cs.workspace, bytes);
       } else {
         delete cp.files[cs.path];
       }

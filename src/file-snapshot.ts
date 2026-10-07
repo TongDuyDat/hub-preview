@@ -68,18 +68,28 @@ export function writeFileAtomicBytes(absPath: string, buf: Buffer): void {
 }
 
 const B64_PREFIX = "b64:";
+const BIN_PREFIX = "bin:";
 
-/** Encode raw baseline bytes for storage in a string-valued baseline slot. */
+/**
+ * Encode raw bytes for a string-valued baseline slot. `bin:`-prefixed values are
+ * always base64 of the raw bytes, so a reader never has to guess an encoding.
+ */
 export function encodeBaseline(bytes: Buffer): string {
-  return B64_PREFIX + bytes.toString("base64");
+  return BIN_PREFIX + bytes.toString("base64");
+}
+
+/** Decode a baseline value that was encoded with `encodeBaseline`. */
+export function decodeBaseline(s: string): Buffer {
+  return Buffer.from(s.slice(BIN_PREFIX.length), "base64");
 }
 
 /**
- * Decode a stored baseline back to bytes. A baseline written by `setCheckpoint` (or by
- * `propose`) is plain utf8 text with no prefix, so the fallback branch must stay.
+ * `b64:`-prefixed values are legacy: they were written by an earlier revision of this
+ * branch, before the encoding became explicit. Nothing writes them any more, but a
+ * stored value must still decode rather than silently corrupt a file.
  */
-export function decodeBaseline(s: string): Buffer {
-  return s.startsWith(B64_PREFIX) ? Buffer.from(s.slice(B64_PREFIX.length), "base64") : Buffer.from(s, "utf8");
+export function isEncodedBaseline(s: string): boolean {
+  return s.startsWith(BIN_PREFIX) || s.startsWith(B64_PREFIX);
 }
 
 export function deleteFileSafe(absPath: string): void {

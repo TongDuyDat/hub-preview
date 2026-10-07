@@ -44,6 +44,11 @@ export interface ChangeSet {
   binary: boolean;
   /** Content at the last accepted checkpoint (O). Empty string for a new file. */
   baseline: string;
+  /**
+   * True when `baseline` holds base64-encoded raw bytes rather than utf8 text.
+   * Optional: an absent value means "same as `binary`" (legacy / hand-built sets).
+   */
+  baselineB64?: boolean;
   /** The newest content the agent wants (C). Empty string for a deleted file. */
   proposed: string;
   /** null when the file did not exist at the checkpoint. */
