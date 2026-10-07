@@ -15,13 +15,18 @@ process.env.VSCODE_STUB_WORKSPACE = JSON.stringify([{ uri: { fsPath: ws }, name:
 process.env.VSCODE_STUB_CONFIG = JSON.stringify({ enabled: true, watchDirectWrites: true });
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const vscode = require("./vscode-stub") as { __commands: Map<string, unknown[]> };
+const vscode = require("./vscode-stub") as {
+  __commands: Map<string, unknown[]>;
+  __webviews: Map<string, unknown>;
+  Uri: { file(p: string): unknown };
+};
 
 test("activate registers the expected commands and starts the hub", async () => {
   const { activate, deactivate } = await import("../src/extension");
   const context = {
     subscriptions: [] as { dispose(): void }[],
     extension: { packageJSON: { version: "0.1.0" } },
+    extensionUri: vscode.Uri.file(process.cwd()),
     asAbsolutePath: (p: string) => path.join(process.cwd(), p),
     globalState: { get: () => undefined, update: async () => {} },
   };
@@ -50,6 +55,8 @@ test("activate registers the expected commands and starts the hub", async () => 
   const entry = JSON.parse(fs.readFileSync(entryFile, "utf8"));
   assert.ok(entry.url.startsWith("http://127.0.0.1:"));
   assert.equal(typeof entry.token, "string");
+
+  assert.ok(vscode.__webviews.has("review-hub.changes"), "the sidebar panel view is registered");
 
   deactivate();
   for (const d of context.subscriptions) {

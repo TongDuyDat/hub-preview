@@ -6,7 +6,9 @@ import { HubServer } from "./hub-server";
 import { registry, pidAlive, defaultBaseDir, type HubEntry } from "./registry";
 import { ChangeContentProvider } from "./content-provider";
 import { HunkCodeLensProvider, DiffView } from "./diff-view";
-import { ChangesTreeProvider, type ChangesModel, type FileNode, type TreeNode } from "./changes-tree";
+import { ReviewPanelProvider, type PanelActions } from "./review-panel";
+import { ReviewTab } from "./review-tab";
+import type { PanelSource } from "./review-panel-state";
 import { WorkspaceWatcher } from "./workspace-watcher";
 import { ChangeDecorator } from "./change-decorator";
 import { ChangeFileDecorationProvider } from "./file-decorations";
@@ -14,7 +16,7 @@ import { DEFAULT_EXCLUDES, DEFAULT_INCLUDE_EXTENSIONS } from "./change-store";
 import { writeWindowState, clearWindowState, readWindowStates } from "./window-registry";
 import { buildAllPreviews, applyPreview } from "./harness-register";
 import { installedServerPath, nodeCommand, type McpLaunch } from "./harness-paths";
-import { HUB_PROTOCOL, type ChangeSummary, type CheckpointInfo } from "./types";
+import { HUB_PROTOCOL, type ChangeSummary, type CheckpointInfo, type FileNode } from "./types";
 
 interface Config {
   enabled: boolean;
@@ -160,15 +162,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // without opening a diff.
   const fileDecorations = new ChangeFileDecorationProvider(hub.store, workspaceFolders);
 
-  const model: ChangesModel = {
-    checkpoint: (ws) => hub.store.checkpointInfo(ws),
-    summaries: (ws) => hub.store.listChanges(ws),
-    // Only this window's own folders. The store is shared across windows, but a window
-    // must show only the project the user has open here — not changes from other windows.
+  // Only this window's own folders. The store is shared across windows, but a window must
+  // show only the project the user has open here — not changes from other windows.
+  const source: PanelSource = {
     workspaces: () => workspaceFolders(),
+    checkpoint: (ws) => hub.store.checkpointInfo(ws),
+    changeSets: (ws) => hub.store.listChangeSets(ws),
   };
-  const tree = new ChangesTreeProvider(model);
-  const treeView = vscode.window.createTreeView("review-hub.changes", { treeDataProvider: tree });
+
+  // `openReviewTab` is assigned below (after `tab` exists) but the action closures and the
+  // auto-open flush reference it earlier, so it needs a forward declaration. Nothing else
+  // does: `decide` is a `const` and `decideMany`/`decideFileById` are hoisted `async function`
+  // declarations later in this scope, and a closure may reference a later `const` as long as
+  // it does not *run* before that const is initialised.
+  let openReviewTab: (changeId: string) => void;
+
+  const panelActions: PanelActions = {
+    acceptHunk: (changeId, hunkId) => void decide(changeId, [hunkId], "accept"),
+    rejectHunk: (changeId, hunkId) => void decide(changeId, [hunkId], "reject"),
+    acceptFile: (changeId) => void decideFileById(changeId, "accept"),
+    rejectFile: (changeId) => void decideFileById(changeId, "reject"),
+    acceptAll: () => void decideMany(workspaceFolders(), "accept"),
+    rejectAll: () => void decideMany(workspaceFolders(), "reject"),
+    openHunk: (changeId) => openReviewTab(changeId),
+    openDiff: (changeId) => openReviewTab(changeId),
+    setCheckpoint: () => void vscode.commands.executeCommand("review-hub.setCheckpoint"),
+  };
+  const panel = new ReviewPanelProvider(context.extensionUri, source, panelActions);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(ReviewPanelProvider.viewType, panel),
+  );
+
+  const tab = new ReviewTab(
+    context.extensionUri,
+    { change: (changeId) => hub.store.findById(changeId) },
+    {
+      acceptHunk: (changeId, hunkId) => void decide(changeId, [hunkId], "accept"),
+      rejectHunk: (changeId, hunkId) => void decide(changeId, [hunkId], "reject"),
+      acceptFile: (changeId) => void decideFileById(changeId, "accept"),
+      rejectFile: (changeId) => void decideFileById(changeId, "reject"),
+    },
+  );
+  openReviewTab = (changeId) => tab.open(changeId);
 
   const diffView = new DiffView(hub.store, provider, codeLens, () => {
     refreshUi();
@@ -176,12 +211,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   decorator.start();
 
   /**
-   * One place to refresh everything that reflects change state: the Changes tree, the
-   * inline decorations on real files, the Explorer badges, and the status bar. Called from
-   * the watcher, the hub events, every decision, and the commands.
+   * One place to refresh everything that reflects change state: the sidebar panel, the
+   * review tab, the inline decorations on real files, the Explorer badges, and the status
+   * bar. Called from the watcher, the hub events, every decision, and the commands.
    */
   function refreshUi(): void {
-    tree.refresh();
+    panel.refresh();
+    tab.refreshAll();
     decorator.refreshAll();
     fileDecorations.refresh();
     updateStatus();
@@ -228,8 +264,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       autoOpened.add(cs.id);
       try {
-        // Open the side-by-side diff beside the editor, without stealing focus.
-        await diffView.openSideBySide(cs.id);
+        // Open the review tab beside the editor, without stealing focus.
+        openReviewTab(cs.id);
       } catch {
         // file may have been deleted; ignore
       }
@@ -273,7 +309,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const before = seenChangeIds;
       const now = new Set<string>();
       let changed = false;
-      for (const ws of model.workspaces()) {
+      for (const ws of source.workspaces()) {
         for (const s of hub.store.listChanges(ws)) {
           now.add(s.id);
           if (!before.has(s.id)) {
@@ -346,7 +382,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = "review-hub.openChanges";
   const updateStatus = () => {
-    const total = model.workspaces().reduce((n, ws) => n + hub.store.listChanges(ws).length, 0);
+    const total = source.workspaces().reduce((n, ws) => n + hub.store.listChanges(ws).length, 0);
     if (total === 0) {
       status.hide();
       return;
@@ -362,12 +398,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // opening a project costs nothing and a session with no changes shows nothing.
   refreshUi();
 
+  /**
+   * Turn a command argument into a change id. Accepts an id, a plain `{ workspace, path }`
+   * node (from a webview command or a menu), or a `Uri` from the Explorer.
+   */
   const resolveChange = async (arg: FileNode | vscode.Uri | string | undefined): Promise<string | undefined> => {
     if (typeof arg === "string") {
       return arg;
     }
-    // A Uri arrives when the command runs from the Explorer (context menu / a click on a
-    // decorated file); look up its change set directly.
     if (arg && typeof arg === "object" && "fsPath" in arg) {
       for (const ws of workspaceFolders()) {
         const root = ws.replace(/[\\/]+$/, "");
@@ -383,8 +421,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       return undefined;
     }
-    if (arg && typeof arg === "object" && "kind" in arg && arg.kind === "file") {
-      return arg.summary.id;
+    if (arg && typeof arg === "object" && "path" in arg && "workspace" in arg) {
+      return hub.store.findChangeByPath(arg.workspace, arg.path)?.id;
     }
     // Fall back to the active diff tab.
     for (const group of vscode.window.tabGroups.all) {
@@ -436,6 +474,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // case and let the watcher re-observe and clobber the staged change.
       watcher.noteSelfWrite(cs.absPath);
       await diffView.refresh(changeId);
+      tab.refresh(changeId);
       refreshUi();
       logger.info(`${kind} ${changeId} -> ${result.status} (remaining ${result.remaining})`);
     } catch (err) {
@@ -451,11 +490,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   context.subscriptions.push(
-    treeView,
     status,
     provider,
     watcher,
     diffView,
+    tab,
     fileDecorations,
     vscode.workspace.registerTextDocumentContentProvider("review-hub", provider),
     vscode.window.registerFileDecorationProvider(fileDecorations),
@@ -472,7 +511,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("review-hub.openDiff", async (arg?: FileNode | vscode.Uri | string) => {
       const changeId = await resolveChange(arg);
       if (changeId) {
-        await diffView.openSideBySide(changeId);
+        tab.open(changeId);
       }
     }),
     // Open the classic side-by-side (baseline | proposed) diff instead of the merged view.
@@ -511,10 +550,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Resolve every change in every project this window knows about.
     vscode.commands.registerCommand("review-hub.acceptAll", async () => {
-      await decideMany(model.workspaces(), "accept");
+      await decideMany(source.workspaces(), "accept");
     }),
     vscode.commands.registerCommand("review-hub.rejectAll", async () => {
-      await decideMany(model.workspaces(), "reject");
+      await decideMany(source.workspaces(), "reject");
     }),
     vscode.commands.registerCommand("review-hub.setCheckpoint", async () => {
       await vscode.window.withProgress(
@@ -598,10 +637,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger,
   );
 
+  async function decideFileById(changeId: string, kind: "accept" | "reject") {
+    await decide(changeId, undefined, kind);
+  }
+
   async function decideFile(arg: FileNode | undefined, kind: "accept" | "reject") {
     const changeId = await resolveChange(arg);
     if (changeId) {
-      await decide(changeId, undefined, kind);
+      await decideFileById(changeId, kind);
     }
   }
 
@@ -616,7 +659,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** Resolve every change across the given workspaces. */
   async function decideMany(workspaces: string[], kind: "accept" | "reject"): Promise<void> {
-    const total = workspaces.reduce((n, ws) => n + hub.store.listChanges(ws).length, 0);
+    const total = workspaces.reduce((n, ws) => n + hub.store.listChangeSets(ws).length, 0);
     if (total === 0) {
       void vscode.window.showInformationMessage("Review Hub: nothing to review.");
       return;
@@ -636,7 +679,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     for (const ws of workspaces) {
-      for (const s of hub.store.listChanges(ws)) {
+      for (const s of hub.store.listChangeSets(ws)) {
         if (kind === "accept") {
           hub.store.accept(s.id);
         } else {

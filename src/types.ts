@@ -121,3 +121,14 @@ export interface ApiError {
 }
 
 export const HUB_PROTOCOL = 1;
+
+/**
+ * A changed file, as passed across the webview boundary and between commands.
+ *
+ * A plain serialisable shape, not a class: webview commands cannot pass class instances
+ * over the message boundary, and the tree's `FileNode` carried a whole `ChangeSummary`.
+ */
+export interface FileNode {
+  workspace: string;
+  path: string;
+}
