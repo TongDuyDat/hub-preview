@@ -20,8 +20,8 @@
 - **Webview message protocol:** extension → webview uses `{ type: ... }`; webview → extension uses `{ command: ... }`. Matches hunkwise's convention.
 - **SQLite rows must be spread (`{ ...row }`) before returning** — rows come back with a null prototype and break `assert.deepEqual`. **Booleans must be stored as `0`/`1`** — `node:sqlite` cannot bind a JS boolean.
 - **`node:sqlite`'s `ExperimentalWarning` is filtered individually** (match the message `"SQLite is an experimental feature"`), never by muting all warnings. The `process.emitWarning` override must be installed **before** the `require("node:sqlite")`.
-- **There is no git repository** in this project (`/home/tongdat/review-hub-vscode` is not a repo). Every task therefore ends with a verification checkpoint instead of a commit:
-  `npm run typecheck && npm test` → typecheck clean, all tests pass.
+- **Git.** A repository now exists in this project (created after this plan was written; baseline commit `71ba6c9`, `core.autocrlf=false`). Each task **ends with a commit** after its verification checkpoint passes, so the review loop can diff `BASE..HEAD`. Commit message form: `Task <N>: <short title>`. Do not rewrite or amend earlier commits.
+- **Verification checkpoint:** every task ends with `npm run typecheck && npm test` → typecheck clean, all tests pass, **before** committing.
 - **MIT notice:** hunkwise is MIT (`Copyright (c) 2025 molon`). Only its *layout and interaction model* are borrowed; the panel is written fresh. If any hunkwise code or asset is copied verbatim, reproduce the MIT notice.
 - **Test count today: 120** across 20 files in `test/`. That number grows as tasks add tests; the plan states the expected count per task.
 
@@ -2154,10 +2154,10 @@ Expected: `store.listChangeSets is not a function` and `backend` rejected as an 
 
 In `src/change-store.ts`:
 
-1. Replace the imports of `file-snapshot` so `writeFileAtomic`/`deleteFileSafe` remain (still used by `applyToDisk`), drop `hashContent`, and add the backend imports:
+1. Replace the imports of `file-snapshot` so `writeFileAtomic`/`deleteFileSafe` remain (still used by `applyToDisk`) and add the backend imports. **Keep `hashContent`** — `observeBinary` still calls it at `src/change-store.ts:809`, so dropping it breaks the typecheck:
 
 ```ts
-import { writeFileAtomic, deleteFileSafe, readFileSafe, resolveInside, toPosix } from "./file-snapshot";
+import { writeFileAtomic, deleteFileSafe, readFileSafe, resolveInside, toPosix, hashContent } from "./file-snapshot";
 import { JsonBackend, SqliteBackend, workspaceKey, type CheckpointRecord, type StoreBackend } from "./store-backend";
 import { openDatabase } from "./sqlite";
 ```
