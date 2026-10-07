@@ -7,7 +7,7 @@
   "license": "MIT",
   "preview": true,
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.103.0"
   },
   "categories": [
     "Other"
@@ -144,48 +144,6 @@
           "command": "review-hub.refresh",
           "when": "view == review-hub.changes",
           "group": "navigation@4"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "review-hub.openDiff",
-          "when": "view == review-hub.changes && viewItem == reviewHub.file",
-          "group": "inline@1"
-        },
-        {
-          "command": "review-hub.openSideBySide",
-          "when": "view == review-hub.changes && viewItem == reviewHub.file",
-          "group": "inline@2"
-        },
-        {
-          "command": "review-hub.openFile",
-          "when": "view == review-hub.changes && viewItem == reviewHub.file",
-          "group": "inline@3"
-        },
-        {
-          "command": "review-hub.acceptFile",
-          "when": "view == review-hub.changes && viewItem == reviewHub.file",
-          "group": "inline@4"
-        },
-        {
-          "command": "review-hub.rejectFile",
-          "when": "view == review-hub.changes && viewItem == reviewHub.file",
-          "group": "inline@5"
-        },
-        {
-          "command": "review-hub.undoFile",
-          "when": "view == review-hub.changes && viewItem == reviewHub.file",
-          "group": "inline@6"
-        },
-        {
-          "command": "review-hub.acceptProject",
-          "when": "view == review-hub.changes && viewItem == reviewHub.folder",
-          "group": "inline@1"
-        },
-        {
-          "command": "review-hub.rejectProject",
-          "when": "view == review-hub.changes && viewItem == reviewHub.folder",
-          "group": "inline@2"
         }
       ],
       "explorer/context": [

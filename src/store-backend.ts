@@ -435,6 +435,7 @@ function rowToChangeSet(row: ChangeRow, hunks: HunkRow[]): ChangeSet {
 
 export class SqliteBackend implements StoreBackend {
   private blobs: BaselineBlobs;
+  private closed = false;
 
   constructor(private driver: SqlDriver, baseDir?: string) {
     this.blobs = new BaselineBlobs(baseDir ?? path.join(process.env.HOME ?? "", ".review-hub"));
@@ -625,6 +626,10 @@ export class SqliteBackend implements StoreBackend {
   }
 
   dispose(): void {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
     this.driver.close();
   }
 }

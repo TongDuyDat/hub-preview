@@ -89,10 +89,11 @@ export class HubServer {
   async stop(): Promise<void> {
     const server = this.server;
     this.server = undefined;
-    if (!server) {
-      return;
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    // Release the SQLite handle so a restart in the same process does not leak it.
+    this.store.dispose();
   }
 
   // ---- routing ----
