@@ -577,7 +577,9 @@ Expected: typecheck clean; `# pass 130`, `# fail 0`.
 
 ### Task 3: Real-file decorations under the new model
 
-Fixes the reported bug *"các phần code bị xóa đi thay thế mới code khác thì không hiển thị màu đỏ lên"* as far as the real editor allows. Under review-then-apply the on-disk document is `resolveLines(baselineLines, hunks, "baseline")`, so every anchor must use that frame instead of `"proposed"`. The multi-line red block itself is impossible in the real buffer (see spec §2.1); it is delivered by the review tab in Task 12.
+Fixes the reported bug *"các phần code bị xóa đi thay thế mới code khác thì không hiển thị màu đỏ lên"* as far as the real editor allows. Under review-then-apply the on-disk document is `resolveLines(baselineLines, hunks, diskFrame(cs.origin))` — the frame depends on the change's origin (see `diskFrame` below), so every anchor must use that frame instead of a hardcoded one. The multi-line red block itself is impossible in the real buffer (see spec §2.1); it is delivered by the review tab in Task 12.
+
+> **Plan correction (applied after Task 3's first review).** This task originally said every anchor uses the literal `"baseline"` frame. That is correct for `origin: "mcp"` but **wrong for `origin: "fs"`**: a direct write is already on disk in the *proposed* frame (see the authoritative rule at `src/change-store.ts:910`). The frame rule was duplicated in three places and had already drifted once, so this task now centralises it in a single exported helper, `diskFrame(origin)`, and every consumer calls that.
 
 **Files:**
 - Modify: `src/change-decorator.ts` (`apply` ~115-175, `ghostFor` ~180-200, new `addedGhostFor`)
@@ -586,8 +588,27 @@ Fixes the reported bug *"các phần code bị xóa đi thay thế mới code kh
 - Modify: `test/inline-review.test.ts` (the two `review-hub://merged/...` tests stay until Task 10)
 
 **Interfaces:**
-- Consumes: `resolveHunkRanges(baselineLines, hunks, "baseline")`, `splitContent`.
-- Produces: `export function ghostFor(oldLines: string[]): string` (unchanged signature, unchanged output strings) and `export function addedGhostFor(newLines: string[]): string` (same shape, `⊕` marker).
+- Consumes: `resolveHunkRanges(baselineLines, hunks, diskFrame(cs.origin))`, `splitContent`.
+- Produces: `export function diskFrame(origin: ChangeOrigin): "baseline" | "proposed"` (in `src/hunk-diff.ts`), `export function ghostFor(oldLines: string[]): string` (unchanged signature, unchanged output strings) and `export function addedGhostFor(newLines: string[]): string` (same shape, `⊕` marker).
+
+**Step 0: Add the shared frame helper (do this first).**
+
+`src/hunk-diff.ts` is pure (no `vscode`, no filesystem), so the frame rule belongs there. Add, importing `ChangeOrigin` from `./types` alongside the existing `Hunk, HunkDecision`:
+
+```ts
+/**
+ * Which frame the on-disk content is in for a change set.
+ *   "mcp" — the agent staged the edit, so the disk still holds the baseline: an
+ *           undecided hunk must be anchored at its baseline lines.
+ *   "fs"  — the agent wrote the file directly, so an undecided hunk is already on disk.
+ * Every anchor (decorations, CodeLens, settle) must use this so the frames cannot drift.
+ */
+export function diskFrame(origin: ChangeOrigin): "baseline" | "proposed" {
+  return origin === "mcp" ? "baseline" : "proposed";
+}
+```
+
+Then replace the inline ternary at `src/change-store.ts:910` with `const pendingMode = diskFrame(cs.origin);` (keep the explanatory comment above it), importing `diskFrame` from `./hunk-diff`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -596,11 +617,13 @@ Replace the top of `test/decoration-range.test.ts` (the comment block and `marks
 ```ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveHunkRanges, splitContent } from "../src/hunk-diff";
+import { diskFrame, resolveHunkRanges, splitContent } from "../src/hunk-diff";
 
 /**
  * Real-file decorations under review-then-apply. The disk holds the BASELINE plus the
- * hunks the user has accepted, so every anchor is computed with `pendingMode = "baseline"`:
+ * hunks the user has accepted for a staged ("mcp") change, so an anchor is computed with
+ * `pendingMode = diskFrame(origin)`. The frame is not always "baseline": a direct write
+ * ("fs") is already on disk in the proposed frame. Marks:
  *   accepted — the new lines are on disk -> green background; the removed old lines are
  *              gone, so they are shown as red ghost text (`⊖`).
  *   pending  — the baseline lines are still on disk -> no background; the removal is
@@ -628,10 +651,10 @@ interface Mark {
 
 const BASELINE = ["a", "b", "c"];
 
-function marksFor(hunks: Hunk[], docLineCount: number): Mark {
+function marksFor(hunks: Hunk[], docLineCount: number, frame: "baseline" | "proposed" = "baseline"): Mark {
   const lastLine = Math.max(0, docLineCount - 1);
   const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
-  const ranges = new Map(resolveHunkRanges(BASELINE, hunks as never, "baseline").map((r) => [r.id, r]));
+  const ranges = new Map(resolveHunkRanges(BASELINE, hunks as never, frame).map((r) => [r.id, r]));
   const out: Mark = { added: [], removed: [], ghost: [] };
   for (const h of hunks) {
     const range = ranges.get(h.id);
@@ -761,19 +784,21 @@ In `src/change-decorator.ts`, replace the header comment's paragraph about disk 
 
 ```ts
  * Under review-then-apply the disk holds the baseline plus the hunks the user has accepted,
- * so every anchor is computed in the "baseline" frame. A pending hunk is not on disk: its
- * removal (or insertion) is previewed as ghost text, since VS Code injected text must be a
- * single line.
+ * so every anchor is computed in the change's disk frame (`diskFrame(cs.origin)`). A pending
+ * hunk is not on disk: its removal (or insertion) is previewed as ghost text, since VS Code
+ * injected text must be a single line.
 ```
 
 and replace the body of `apply` from the `ranges` line to the end of the `for` loop:
 
 ```ts
     // The disk holds the baseline plus the accepted hunks, so a hunk's line range must be
-    // computed in the "baseline" frame — not the proposed one. Accepting a hunk above
-    // changes how many lines it contributes, so `newStart` would colour the wrong lines.
+    // computed in the change's disk frame (`diskFrame(cs.origin)`) — not a hardcoded one.
+    // Accepting a hunk above changes how many lines it contributes, so `newStart` would
+    // colour the wrong lines. The frame differs by origin: a staged ("mcp") change sits on
+    // the baseline, a direct write ("fs") is already on disk in the proposed frame.
     const ranges = new Map(
-      resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, "baseline").map((r) => [r.id, r]),
+      resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, diskFrame(cs.origin)).map((r) => [r.id, r]),
     );
 
     const lastLine = Math.max(0, doc.lineCount - 1);
@@ -873,11 +898,11 @@ The `deletionMarker` decoration type at `src/change-decorator.ts:48-51` currentl
 
 - [ ] **Step 4: Re-frame the real-file CodeLens anchors**
 
-In `src/diff-view.ts`, in the `uri.scheme === "file"` branch, change `"proposed"` to `"baseline"`:
+In `src/diff-view.ts`, in the `uri.scheme === "file"` branch, change the hardcoded frame to `diskFrame(cs.origin)`:
 
 ```ts
       const ranges = new Map(
-        resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, "baseline").map((r) => [r.id, r]),
+        resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, diskFrame(cs.origin)).map((r) => [r.id, r]),
       );
 ```
 
