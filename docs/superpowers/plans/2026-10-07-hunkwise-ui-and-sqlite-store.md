@@ -571,7 +571,7 @@ and in `propose_write`:
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 130`, `# fail 0`.
+Expected: typecheck clean; `# pass 130`, `# fail 0` (126 + 4 staged-read tests). The review fix round adds one absolute-path test → **131**.
 
 ---
 
@@ -655,27 +655,31 @@ function marksFor(hunks: Hunk[], docLineCount: number, frame: "baseline" | "prop
   const lastLine = Math.max(0, docLineCount - 1);
   const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
   const ranges = new Map(resolveHunkRanges(BASELINE, hunks as never, frame).map((r) => [r.id, r]));
+  const pendingOnDisk = frame === "proposed";
   const out: Mark = { added: [], removed: [], ghost: [] };
   for (const h of hunks) {
     const range = ranges.get(h.id);
     const start = clamp(range?.start ?? h.newStart, 0, lastLine);
     const span = range ? range.length : h.oldLines.length;
-    if (h.decision === "accepted" && span > 0) {
+    // The new lines are on disk when the hunk was accepted, or when it is still pending in
+    // a frame where pending means "the agent's direct write is already there" (`fs`).
+    const newOnDisk = h.decision === "accepted" || (h.decision === "pending" && pendingOnDisk);
+    if (newOnDisk && span > 0) {
       out.added.push([start, clamp(start + span - 1, start, lastLine)]);
     }
     if (h.decision === "rejected") {
       const redSpan = Math.max(1, span || h.newLines.length || h.oldLines.length);
       out.removed.push([start, clamp(start + redSpan - 1, start, lastLine)]);
     }
-    if (h.decision === "pending") {
+    // A ghost marks only what the user cannot see in the file.
+    if (newOnDisk) {
       if (h.oldLines.length > 0) {
         out.ghost.push({ line: start, kind: "removed" });
-      } else if (h.newLines.length > 0) {
-        out.ghost.push({ line: start, kind: "added" });
       }
-    }
-    if (h.decision === "accepted" && h.oldLines.length > 0) {
+    } else if (h.decision === "pending" && h.oldLines.length > 0) {
       out.ghost.push({ line: start, kind: "removed" });
+    } else if (h.decision === "pending" && h.newLines.length > 0) {
+      out.ghost.push({ line: start, kind: "added" });
     }
   }
   return out;
@@ -732,6 +736,44 @@ test("a rejected hunk below an accepted one anchors in the baseline frame", () =
   ];
   const m = marksFor(hunks, 4);
   assert.deepEqual(m.removed, [[3, 3]], "the rejected hunk is anchored on baseline line 3");
+});
+
+// ---- the fs frame (the agent wrote the file directly) -------------------------
+
+test("diskFrame maps mcp to the baseline frame and fs to the proposed frame", () => {
+  // The single source of truth for the frame rule, shared by settle, the decorations and
+  // the CodeLens, so the three can never drift apart.
+  assert.equal(diskFrame("mcp"), "baseline", "a staged change leaves the disk on the baseline");
+  assert.equal(diskFrame("fs"), "proposed", "a direct write is already on disk");
+});
+
+test("an fs pending hunk is already on disk: green row and red ghost in the proposed frame", () => {
+  const m = marksFor([h({})], 3, "proposed");
+  assert.deepEqual(m.added, [[1, 1]], "the agent's write is on disk, so the new line is green");
+  assert.deepEqual(m.ghost, [{ line: 1, kind: "removed" }], "the replaced old line is gone: red ghost");
+  assert.deepEqual(m.removed, [], "nothing was rejected");
+});
+
+test("the same pending hunks anchor differently in the two frames", () => {
+  const hunks: Hunk[] = [
+    h({ id: "ins", oldStart: 0, oldLines: [], newStart: 0, newLines: ["x"] }),
+    h({ id: "rep", oldStart: 2, oldLines: ["c"], newStart: 3, newLines: ["C2"] }),
+  ];
+
+  // mcp (baseline frame): the disk holds the baseline, so the insertion is a green ghost
+  // and the replacement still sits on baseline line 3 (0-based 2).
+  const mcp = marksFor(hunks, 3, "baseline");
+  assert.deepEqual(mcp.added, [], "nothing is on disk for a staged change");
+  assert.deepEqual(mcp.ghost, [
+    { line: 0, kind: "added" },
+    { line: 2, kind: "removed" },
+  ]);
+
+  // fs (proposed frame): the agent's write is already on disk, so both hunks are green and
+  // the replacement is anchored one line lower, at its proposed line 4 (0-based 3).
+  const fs = marksFor(hunks, 4, "proposed");
+  assert.deepEqual(fs.added, [[0, 0], [3, 3]], "both hunks are on disk");
+  assert.deepEqual(fs.ghost, [{ line: 3, kind: "removed" }], "the replaced line is ghosted at its real position");
 });
 
 // ---- ghost text formatting ---------------------------------------------------
@@ -797,8 +839,10 @@ and replace the body of `apply` from the `ranges` line to the end of the `for` l
     // Accepting a hunk above changes how many lines it contributes, so `newStart` would
     // colour the wrong lines. The frame differs by origin: a staged ("mcp") change sits on
     // the baseline, a direct write ("fs") is already on disk in the proposed frame.
+    const frame = diskFrame(cs.origin);
+    const pendingOnDisk = frame === "proposed";
     const ranges = new Map(
-      resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, diskFrame(cs.origin)).map((r) => [r.id, r]),
+      resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, frame).map((r) => [r.id, r]),
     );
 
     const lastLine = Math.max(0, doc.lineCount - 1);
@@ -807,9 +851,12 @@ and replace the body of `apply` from the `ranges` line to the end of the `for` l
       const range = ranges.get(hunk.id);
       const start = clamp(range?.start ?? hunk.newStart, 0, lastLine);
       const span = range ? range.length : hunk.oldLines.length;
+      // A hunk's *new* lines are on disk when it was accepted, or when it is still pending
+      // in a frame where pending means "the agent's direct write is already there" (`fs`).
+      const newOnDisk = hunk.decision === "accepted" || (hunk.decision === "pending" && pendingOnDisk);
 
-      // GREEN — the accepted lines, which really are on disk now.
-      if (hunk.decision === "accepted" && span > 0) {
+      // GREEN — the new lines, which really are on disk now.
+      if (newOnDisk && span > 0) {
         const end = clamp(start + span - 1, start, lastLine);
         added.push({ range: new vscode.Range(start, 0, end, 0), hoverMessage: new vscode.MarkdownString(label) });
       }
@@ -822,10 +869,18 @@ and replace the body of `apply` from the `ranges` line to the end of the `for` l
         removed.push({ range: new vscode.Range(start, 0, end, 0), hoverMessage: new vscode.MarkdownString(label) });
       }
 
-      // GHOST — what the user cannot see in the file: a pending hunk's would-be removal
-      // (or insertion), and an accepted hunk's already-removed lines. Red for removals,
-      // green for insertions, so the deletion reads as red even without a red row.
-      if (hunk.decision === "pending" && hunk.oldLines.length > 0) {
+      // GHOST — only what the user cannot see in the file. Red for a removal, green for an
+      // insertion, so a deletion reads as red even though it cannot have a red row.
+      if (newOnDisk) {
+        // The new lines are visible, so the old ones are really gone: show what was removed.
+        if (hunk.oldLines.length > 0) {
+          deleted.push({
+            range: new vscode.Range(start, 0, start, 0),
+            hoverMessage: removedHover(label, hunk.oldLines),
+            renderOptions: { after: { contentText: ghostFor(hunk.oldLines), color: DELETED_COLOR } },
+          });
+        }
+      } else if (hunk.decision === "pending" && hunk.oldLines.length > 0) {
         deleted.push({
           range: new vscode.Range(start, 0, start, 0),
           hoverMessage: pendingHover(label, hunk.oldLines, hunk.newLines),
@@ -836,12 +891,6 @@ and replace the body of `apply` from the `ranges` line to the end of the `for` l
           range: new vscode.Range(start, 0, start, 0),
           hoverMessage: pendingHover(label, hunk.oldLines, hunk.newLines),
           renderOptions: { after: { contentText: addedGhostFor(hunk.newLines), color: ADDED_COLOR } },
-        });
-      } else if (hunk.decision === "accepted" && hunk.oldLines.length > 0) {
-        deleted.push({
-          range: new vscode.Range(start, 0, start, 0),
-          hoverMessage: removedHover(label, hunk.oldLines),
-          renderOptions: { after: { contentText: ghostFor(hunk.oldLines), color: DELETED_COLOR } },
         });
       }
     }
@@ -909,7 +958,7 @@ In `src/diff-view.ts`, in the `uri.scheme === "file"` branch, change the hardcod
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 133`, `# fail 0` (130 + 3: `decoration-range.test.ts` grows from 10 tests to 13).
+Expected: typecheck clean; `# pass 137`, `# fail 0` (131 + 3 for the frame-helper tests + 3 for the fs-frame tests: `decoration-range.test.ts` grows from 10 tests to 16).
 
 ---
 
@@ -1257,7 +1306,7 @@ In `scripts/test.mjs`, change `target: "node18"` to `target: "node22"` and add `
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 141`, `# fail 0` (133 + 8 new sqlite tests). No `ExperimentalWarning: SQLite is an experimental feature` in the output.
+Expected: typecheck clean; `# pass 145`, `# fail 0` (137 + 8 new sqlite tests). No `ExperimentalWarning: SQLite is an experimental feature` in the output.
 
 ---
 
@@ -1771,7 +1820,7 @@ Note: `findById` used to iterate `workspaces/<key>/changes/<id>.json`; that is p
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 150`, `# fail 0` (141 + 9 new backend tests).
+Expected: typecheck clean; `# pass 154`, `# fail 0` (145 + 9 new backend tests).
 
 ---
 
@@ -2119,7 +2168,7 @@ export class SqliteBackend implements StoreBackend {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 159`, `# fail 0` (150 + 9 mirrored SQLite tests).
+Expected: typecheck clean; `# pass 163`, `# fail 0` (154 + 9 mirrored SQLite tests).
 
 ---
 
@@ -2321,7 +2370,7 @@ export class ChangeStore {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 161`, `# fail 0` (159 + 2 new `ChangeStore` tests). All 120 original tests now exercise `SqliteBackend` by default (because `node:sqlite` is present on Node 22.23) — that is the point of the backend interface.
+Expected: typecheck clean; `# pass 165`, `# fail 0` (163 + 2 new `ChangeStore` tests). All 120 original tests now exercise `SqliteBackend` by default (because `node:sqlite` is present on Node 22.23) — that is the point of the backend interface.
 
 - [ ] **Step 5: Confirm the JSON fallback still works end to end**
 
@@ -2457,7 +2506,7 @@ Note: `stop()` is now idempotent about the store (a second `dispose()` on `Sqlit
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 161`, `# fail 0`. `test/extension.test.ts` still passes (it stops the hub on teardown).
+Expected: typecheck clean; `# pass 165`, `# fail 0`. `test/extension.test.ts` still passes (it stops the hub on teardown).
 
 - [ ] **Step 5: Verify the packaged output**
 
@@ -2825,7 +2874,7 @@ export function buildReviewState(cs: ChangeSet): ReviewState {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 171`, `# fail 0` (161 + 10 new state tests).
+Expected: typecheck clean; `# pass 175`, `# fail 0` (165 + 10 new state tests).
 
 ---
 
@@ -2978,7 +3027,7 @@ Keep the `onDidChange` regression test and the `provider.mergedText` assertions 
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test`
-Expected: the rewritten tests pass already (they only use `buildReviewState`), and `npm run typecheck` still succeeds because `mergedUri`/`mergedText` still exist. This step is the checkpoint: run `npm test` and confirm `# pass 171`, `# fail 0` **before** deleting the merged view, so the new tests are proven against the old code.
+Expected: the rewritten tests pass already (they only use `buildReviewState`), and `npm run typecheck` still succeeds because `mergedUri`/`mergedText` still exist. This step is the checkpoint: run `npm test` and confirm `# pass 175`, `# fail 0` **before** deleting the merged view, so the new tests are proven against the old code.
 
 - [ ] **Step 3: Delete the merged authority from the content provider**
 
@@ -3060,7 +3109,7 @@ In `src/diff-view.ts`:
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 171`, `# fail 0` (the rewritten `inline-review.test.ts` tests replace the old ones one-for-one). No test references `review-hub://merged` any more.
+Expected: typecheck clean; `# pass 175`, `# fail 0` (the rewritten `inline-review.test.ts` tests replace the old ones one-for-one). No test references `review-hub://merged` any more.
 
 ---
 
@@ -3723,7 +3772,7 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 175`, `# fail 0` (171 + 4 new panel tests).
+Expected: typecheck clean; `# pass 179`, `# fail 0` (175 + 4 new panel tests).
 
 ---
 
@@ -4217,7 +4266,7 @@ function titleFor(cs: ChangeSet): string {
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 181`, `# fail 0` (175 + 6 new tab tests).
+Expected: typecheck clean; `# pass 185`, `# fail 0` (179 + 6 new tab tests).
 
 ---
 
@@ -4495,7 +4544,7 @@ Expected: `no references`.
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; `# pass 181`, `# fail 0`. `test/extension.test.ts` now asserts `review-hub.changes` is a webview view.
+Expected: typecheck clean; `# pass 185`, `# fail 0`. `test/extension.test.ts` now asserts `review-hub.changes` is a webview view.
 
 - [ ] **Step 7: Verify the bundle builds and ships the media**
 
@@ -4529,10 +4578,10 @@ In `docs/superpowers/specs/2026-10-07-hunkwise-ui-and-sqlite-store-design.md`:
 In `README.md`, the "Phát triển" section's comment:
 
 ```bash
-npm test            # 181 test: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e
+npm test            # 185 test: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e
 ```
 
-(120 before this work, 181 after — the plan's per-task checkpoints add 61.)
+(120 before this work, 185 after — the plan's per-task checkpoints add 65.)
 
 - [ ] **Step 3: Document the review-then-apply model in the README**
 
@@ -4599,7 +4648,7 @@ In `src/extension.ts`, find the `installInstructions` body and add these two lin
 - [ ] **Step 6: Verify the docs render and nothing else broke**
 
 Run: `npm run typecheck && npm test && grep -n "118" README.md docs/superpowers/specs/2026-10-07-hunkwise-ui-and-sqlite-store-design.md || echo "no stale 118"`
-Expected: typecheck clean; `# pass 181`, `# fail 0`; `no stale 118`.
+Expected: typecheck clean; `# pass 185`, `# fail 0`; `no stale 118`.
 
 ---
 
