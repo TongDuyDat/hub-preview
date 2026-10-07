@@ -1,7 +1,7 @@
 # Review Hub — Hunkwise-style UI, decide-to-disk apply model, SQLite store
 
 Date: 2026-10-07
-Status: awaiting user review
+Status: approved; implemented
 Scope: architectural (new UI subsystem, changed write semantics, new persistence layer)
 
 ## 1. Goal
@@ -372,7 +372,7 @@ public methods — `propose`, `observe`, `accept`, `reject`, `listChanges`, `fin
 backends implement behind those signatures, so **neither HTTP routes nor MCP tool definitions
 change**, and `mcp-server.cjs` does not need to know SQLite exists.
 
-The 118 existing tests are the safety net for this refactor. `test/change-store.test.ts`,
+The 120 existing tests are the safety net for this refactor. `test/change-store.test.ts`,
 `test/decision-flow.test.ts`, `test/accept-all.test.ts`, `test/hub-server.test.ts`,
 `test/mcp-forward.test.ts` and `test/e2e.test.ts` must all still pass.
 
@@ -398,7 +398,7 @@ The 118 existing tests are the safety net for this refactor. `test/change-store.
 
 ## 7. Testing
 
-- **Existing 118 tests** must stay green. The store refactor is the main risk; the backend
+- **Existing 120 tests** must stay green. The store refactor is the main risk; the backend
   interface is what makes them meaningful.
 - **New, pure (no `vscode`)**: `sqlite.test.ts` — schema creation, upsert/read round-trip, hunk
   cascade delete, transaction rollback; `store-backend.test.ts` — the same scenario run against
@@ -418,12 +418,15 @@ The 118 existing tests are the safety net for this refactor. `test/change-store.
 - Multi-root behaviour beyond what exists today.
 - Any change to how agents are registered (harness config writing is untouched).
 
-## 9. Open question for the user
+## 9. Resolved: the engines bump
 
 `engines.vscode` moves from `^1.85.0` to `^1.103.0`, dropping VS Code 1.85–1.102. This is required
 for the Electron SQLite fix. If supporting those older versions matters more than SQLite, the JSON
 backend is the default and `engines` can stay at `^1.85.0` — say so and §5 becomes
 "SQLite when available, JSON otherwise, no version bump".
+
+Resolved 2026-10-07: the user accepted `engines.vscode = "^1.103.0"`. SQLite is the default
+backend, with the JSON backend as the fallback when `node:sqlite` is missing.
 
 ## 10. Licensing note
 

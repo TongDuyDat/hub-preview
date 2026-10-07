@@ -24,7 +24,7 @@ Review Hub giải quyết cả hai bằng cách nằm **bên dưới** agent, �
 
 ---
 
-## 2. Cách hoạt động
+## 2. Cách hoạt động: xem trước rồi mới ghi
 
 ```
  harness (Claude Code / opencode / dsh / Cline / Roo)
@@ -34,22 +34,38 @@ Review Hub giải quyết cả hai bằng cách nằm **bên dưới** agent, �
         │                                        │
         │                                  Change Store  (~/.review-hub)
         │                                        │
-   stage các thay đổi                     Changes tree + diff + CodeLens
+   stage các thay đổi                     Panel sidebar + tab review
                                           accept / reject theo từng hunk
 ```
 
 1. Khi kích hoạt, extension mở một hub cục bộ (`127.0.0.1`, port ngẫu nhiên, kèm bearer token)
    và ghi thông tin ra `~/.review-hub/hub.json`.
 2. **Baseline** của một file lấy từ git HEAD, hoặc được chụp lại ở lần đầu file đó thay đổi.
-3. Agent gọi `propose_edit` / `propose_write` → thay đổi được **ghi ngay xuống đĩa** (nên bạn
-   thấy nó inline trong file thật) **và** được ghi lại để chờ duyệt.
+3. Agent gọi `propose_edit` / `propose_write` → thay đổi được **lưu lại kèm diff để chờ duyệt**,
+   **không ghi gì lên đĩa**.
 4. File đã đổi có **badge trong Explorer** (`M`/`A`/`D`, có màu, kèm dấu chấm ở folder cha) và
    một dòng trong panel **Review Hub** → biết file nào đổi mà không cần mở gì cả. Không có cửa
    sổ nào tự bật lên.
-5. Click vào file (trong Explorer hoặc dòng trong panel) để mở **merged review view**: một editor
-   duy nhất, mỗi hunk hiện dòng cũ (đỏ) ngay trên dòng mới (xanh), phần context không đổi ở giữa,
-   kèm nút **Accept** / **Reject** cho từng hunk. Thấy code cũ và mới cùng lúc.
-6. **Reject** khôi phục lại đúng các dòng baseline của hunk đó → không mất gì.
+5. Click vào file (trong Explorer hoặc dòng trong panel) để mở **tab review**: mỗi hunk hiện dòng
+   cũ (nền đỏ) ngay trên dòng mới (nền xanh), kèm nút **✓** / **↺** cho từng hunk. Thấy code cũ
+   và mới cùng lúc.
+6. Bấm **✓** một hunk → đúng các dòng mới của hunk đó được ghi lên đĩa. Bấm **↺** → không ghi
+   gì, giữ nguyên dòng gốc.
+
+Review Hub **không ghi gì lên đĩa khi agent đề xuất thay đổi**. Agent gọi `propose_edit` /
+`propose_write`, thay đổi được lưu lại kèm diff, và **chỉ những hunk bạn bấm ✓ mới được ghi
+lên đĩa**. Hunk chưa quyết định không tồn tại trên đĩa; hunk bị ↺ giữ nguyên nội dung gốc.
+
+| Hành động | Trên đĩa sau đó |
+|---|---|
+| Agent đề xuất (`propose_edit`) | **không đổi** — vẫn là bản gốc |
+| Bạn bấm ✓ một hunk | đúng các dòng mới của hunk đó |
+| Bạn bấm ↺ một hunk | không ghi gì (giữ dòng gốc) |
+| Hunk chưa quyết định | không có trên đĩa |
+
+Hệ quả: nếu agent tự đọc file bằng công cụ riêng của nó, nó sẽ thấy **nội dung cũ**. Đó là
+đúng thiết kế, không phải lỗi. Agent nên đọc qua công cụ `read_file` của Review Hub để thấy
+bản đã đề xuất.
 
 ### Quyết định ở mức "khối", không phải cả file
 
@@ -71,12 +87,31 @@ File **vẫn giữ badge** cho tới khi B cũng được quyết định.
 
 File thật cũng có highlight inline (xanh cho dòng mới, đỏ cho dòng bị hoàn nguyên, chữ đã xoá
 hiện dạng ghost text) kèm nút Accept/Reject y như vậy, để bạn duyệt ngay tại chỗ. Khi cần chế độ
-2 cột cổ điển, dùng **Review Hub: Open Side-by-Side Diff**. Tính năng tự mở merged view mặc định
+2 cột cổ điển, dùng **Review Hub: Open Side-by-Side Diff**. Tính năng tự mở tab review mặc định
 **tắt** (`review-hub.autoOpenDiff`) để agent không làm gián đoạn việc bạn đang làm.
+
+### Hai bề mặt giao diện
+
+- **Panel ở sidebar** (biểu tượng Review Hub trên thanh hoạt động): danh sách file kèm
+  `+thêm −bớt`, mở ra xem từng hunk `@line N`, mỗi hunk có ✓ / ↺, kèm nút cấp file và cấp
+  toàn bộ. Kiểu bố cục của [hunkwise](https://github.com/molon/hunkwise).
+- **Tab review**: cửa sổ diff đầy đủ — dòng bị xoá hiển thị **nền đỏ**, dòng thêm vào hiển
+  thị **nền xanh**, mỗi hunk có thanh quyết định riêng. Đây là nơi duy nhất hiển thị được
+  khối đỏ nhiều dòng: API ổn định của VS Code không cho phép vẽ nhiều dòng chèn vào buffer
+  thật (xem `docs/superpowers/specs/2026-10-07-hunkwise-ui-and-sqlite-store-design.md` §2.1).
 
 ---
 
-## 3. Bắt đầu nhanh
+## 3. Yêu cầu
+
+- **VS Code 1.103.0 trở lên.** Bản 1.85–1.102 dùng Electron cũ thiếu binding `node:sqlite`
+  (lỗi đã được sửa ở Electron 37.2.3). Nếu không có SQLite, extension tự động chuyển sang
+  kho JSON trong `~/.review-hub/workspaces/` — không hỏng, chỉ chậm hơn.
+- Node 22.13+ trong extension host (đi kèm VS Code 1.103+).
+
+---
+
+## 4. Bắt đầu nhanh
 
 ### Cài đặt
 
@@ -106,7 +141,7 @@ Agent sửa file  →  badge hiện trong Explorer + dòng trong panel Review Hu
 
 ---
 
-## 4. Phát hiện thay đổi — hoạt động cả nơi inotify "tịt"
+## 5. Phát hiện thay đổi — hoạt động cả nơi inotify "tịt"
 
 Hệ thống dùng **3 cơ chế** để không phụ thuộc vào việc filesystem có bắn event hay không:
 
@@ -129,7 +164,7 @@ Kết quả: repo lớn nằm yên rất êm, mà vẫn không bỏ sót thay đ
 
 ---
 
-## 5. Danh sách lệnh
+## 6. Danh sách lệnh
 
 | Lệnh | Tác dụng |
 |---|---|
@@ -137,7 +172,7 @@ Kết quả: repo lớn nằm yên rất êm, mà vẫn không bỏ sót thay đ
 | **Clear Checkpoint** | Xoá checkpoint hiện tại |
 | **Show Changes** | Mở/focus view Changes |
 | **Refresh** | Làm mới danh sách thay đổi |
-| **Open Diff** | Mở merged view (cũ + mới) cho một file |
+| **Open Diff** | Mở tab review (cũ + mới) cho một file |
 | **Open Side-by-Side Diff** | Mở diff 2 cột cổ điển: baseline vs đề xuất |
 | **Open File (new content)** | Mở file thật trên đĩa để sửa trực tiếp |
 | **Accept Hunk** / **Reject Hunk** | Duyệt/từ chối một khối |
@@ -152,7 +187,7 @@ Kết quả: repo lớn nằm yên rất êm, mà vẫn không bỏ sót thay đ
 
 ---
 
-## 6. MCP tools cho agent
+## 7. MCP tools cho agent
 
 | Tool | Mục đích |
 |---|---|
@@ -165,13 +200,13 @@ Kết quả: repo lớn nằm yên rất êm, mà vẫn không bỏ sót thay đ
 
 ---
 
-## 7. Cài đặt (Settings)
+## 8. Cài đặt (Settings)
 
 | Setting | Mặc định | Ý nghĩa |
 |---|---|---|
 | `review-hub.enabled` | `true` | Bật/tắt hub. Tắt thì server không chạy và watcher bị vô hiệu. |
 | `review-hub.watchDirectWrites` | `true` | Bắt agent ghi file trực tiếp (cơ chế dự phòng khi agent bỏ qua MCP). |
-| `review-hub.autoOpenDiff` | `false` | Tự mở merged view ngay khi agent sửa file. Mặc định tắt để không làm gián đoạn. |
+| `review-hub.autoOpenDiff` | `false` | Tự mở tab review ngay khi agent sửa file. Mặc định tắt để không làm gián đoạn. |
 | `review-hub.ignoreWhitespace` | `false` | Bỏ qua thay đổi chỉ khác khoảng trắng. |
 | `review-hub.maxFileSize` | `2097152` (2 MB) | File lớn hơn mức này chỉ accept/reject cả file, không tách hunk. |
 | `review-hub.excludeGlobs` | `[]` | Glob bổ sung mà watcher bỏ qua (danh sách mặc định luôn được áp dụng). |
@@ -179,7 +214,7 @@ Kết quả: repo lớn nằm yên rất êm, mà vẫn không bỏ sót thay đ
 
 ---
 
-## 8. Dữ liệu lưu ở đâu
+## 9. Lưu trữ
 
 Tất cả nằm dưới `~/.review-hub/`:
 
@@ -187,6 +222,18 @@ Tất cả nằm dưới `~/.review-hub/`:
 ~/.review-hub/
   hub.json                    thông tin discovery (url, token, pid) — chmod 0600
   bin/mcp-server.cjs          bản copy cố định mà các harness trỏ vào
+  hub.db                      trạng thái review (SQLite, mặc định)
+  workspaces/<hash>/
+    baselines/<hash>          file baseline lưu theo content-addressed hash
+```
+
+Một database nhỏ tại `~/.review-hub/hub.db` (bảng `checkpoints`, `changes`, `hunks`) giữ
+trạng thái review. Nội dung baseline được lưu theo hash trong
+`~/.review-hub/workspaces/<hash>/baselines/` để database không phình to.
+
+Nếu máy không có `node:sqlite`, extension tự chuyển sang kho JSON cùng chỗ — thay `hub.db` bằng:
+
+```
   workspaces/<hash>/
     checkpoint.json           baseline từng file, chụp trong session này
     baselines/<hash>          file baseline lưu theo content-addressed hash
@@ -215,7 +262,7 @@ tường minh, chạy **Review Hub: Set Checkpoint** (giới hạn bởi `review
 
 ---
 
-## 9. Ghi chú thiết kế
+## 10. Ghi chú thiết kế
 
 - **Các quyết định không đẩy nhau.** Hunk được tính một lần so với baseline, rồi file được dựng
   lại bằng cách replay các quyết định từ baseline. Accept hunk 1 **không** làm đổi số dòng của
@@ -228,12 +275,12 @@ tường minh, chạy **Review Hub: Set Checkpoint** (giới hạn bởi `review
 
 ---
 
-## 10. Phát triển
+## 11. Phát triển
 
 ```bash
 npm run build       # bundle dist/extension.js và dist/mcp-server.cjs
 npm run typecheck
-npm test            # 118 test: hunk diff, store, hub, registry, MCP forward, register, e2e
+npm test            # 186 test: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e
 ```
 
 > **Lưu ý:** hãy build project này trên filesystem Linux native. Trên mount WSL `/mnt/*` (9p),
