@@ -3853,9 +3853,11 @@ interface FakePanel {
 
 function setup() {
   const ws = tmp();
-  fs.writeFileSync(path.join(ws, "a.txt"), "one\ntwo\n");
+  // A mid-file change, so the review state has a trailing context line after the hunk
+  // (an end-of-file change yields only ["context", "deleted", "added"]).
+  fs.writeFileSync(path.join(ws, "a.txt"), "one\ntwo\nthree\n");
   const store = new ChangeStore({ baseDir: tmp(), backend: "json" });
-  const cs = store.propose(ws, "a.txt", "one\nTWO\n");
+  const cs = store.propose(ws, "a.txt", "one\nTWO\nthree\n");
   const calls: string[] = [];
   const actions: TabActions = {
     acceptHunk: (c, h) => calls.push(`acceptHunk:${c}:${h}`),
