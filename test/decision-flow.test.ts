@@ -154,3 +154,28 @@ test("reject B writes nothing; A and C stay at their baseline lines", async () =
   assert.equal(fs.readFileSync(file, "utf8"), OLD, "the file is still exactly the baseline");
   assert.equal(store.listChanges(ws).length, 1, "still pending for A and C");
 });
+
+// ---- Framing: a partial accept keeps the baseline's line endings ------------------
+
+test("partial accept keeps CRLF on the untouched lines", async () => {
+  const ws = tmp();
+  const file = path.join(ws, "crlf.txt");
+  const baseline = "a\r\nb\r\nc\r\nd\r\n";
+  fs.writeFileSync(file, baseline);
+  const store = new ChangeStore({ baseDir: tmp() });
+  await store.setCheckpoint(ws, { maxFileSize: 1e9, excludeGlobs: [] });
+
+  const cs = store.propose(ws, "crlf.txt", "A\nb\nC\nd\n");
+  assert.equal(cs.hunks.length, 2, "two separated hunks");
+
+  store.accept(cs.id, [cs.hunks[0].id]);
+  assert.equal(
+    fs.readFileSync(file, "utf8"),
+    "A\r\nb\r\nc\r\nd\r\n",
+    "the accepted line and every untouched line keep CRLF",
+  );
+
+  // Accepting the rest lands the whole proposal, framing included.
+  store.accept(cs.id);
+  assert.equal(fs.readFileSync(file, "utf8"), "A\nb\nC\nd\n", "a full accept uses the proposal's framing");
+});

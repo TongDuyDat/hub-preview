@@ -94,16 +94,6 @@
       {
         "command": "review-hub.showHubInfo",
         "title": "Review Hub: Show Hub Info"
-      },
-      {
-        "command": "review-hub.acceptProject",
-        "title": "Review Hub: Accept All in This Project",
-        "icon": "$(check-all)"
-      },
-      {
-        "command": "review-hub.rejectProject",
-        "title": "Review Hub: Reject All in This Project",
-        "icon": "$(discard)"
       }
     ],
     "viewsContainers": {
@@ -186,7 +176,7 @@
         "review-hub.autoOpenDiff": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically open the merged review view as soon as an agent changes a file. Off by default: changed files are marked with a badge in the Explorer (and in the Review Hub panel), and you open the diff by clicking one, so an agent's edits never interrupt what you are doing."
+          "description": "Automatically open the review tab as soon as an agent changes a file. Off by default: changed files are marked with a badge in the Explorer (and in the Review Hub panel), and you open the diff by clicking one, so an agent's edits never interrupt what you are doing."
         },
         "review-hub.ignoreWhitespace": {
           "type": "boolean",

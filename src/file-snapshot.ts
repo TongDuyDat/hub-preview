@@ -46,6 +46,42 @@ export function writeFileAtomic(absPath: string, content: string): void {
   fs.renameSync(tmp, absPath);
 }
 
+/** Raw bytes of a file, or `undefined` when it cannot be read. */
+export function readFileBytes(absPath: string): Buffer | undefined {
+  try {
+    return fs.readFileSync(absPath);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Write bytes atomically, like `writeFileAtomic` but without the utf8 round-trip.
+ * Needed for binaries: decoding bytes to a string and re-encoding them mangles every
+ * non-utf8 sequence (a 10-byte file can become 16 bytes of U+FFFD).
+ */
+export function writeFileAtomicBytes(absPath: string, buf: Buffer): void {
+  fs.mkdirSync(path.dirname(absPath), { recursive: true });
+  const tmp = `${absPath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, buf);
+  fs.renameSync(tmp, absPath);
+}
+
+const B64_PREFIX = "b64:";
+
+/** Encode raw baseline bytes for storage in a string-valued baseline slot. */
+export function encodeBaseline(bytes: Buffer): string {
+  return B64_PREFIX + bytes.toString("base64");
+}
+
+/**
+ * Decode a stored baseline back to bytes. A baseline written by `setCheckpoint` (or by
+ * `propose`) is plain utf8 text with no prefix, so the fallback branch must stay.
+ */
+export function decodeBaseline(s: string): Buffer {
+  return s.startsWith(B64_PREFIX) ? Buffer.from(s.slice(B64_PREFIX.length), "base64") : Buffer.from(s, "utf8");
+}
+
 export function deleteFileSafe(absPath: string): void {
   try {
     fs.unlinkSync(absPath);

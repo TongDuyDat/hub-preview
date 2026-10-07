@@ -18,6 +18,13 @@ export interface GitBaseline {
   content: string | null;
 }
 
+export interface GitBaselineBytes {
+  /** Whether the workspace is inside a git work tree. */
+  isRepo: boolean;
+  /** HEAD bytes of the path, or null when the file is not tracked at HEAD. */
+  bytes: Buffer | null;
+}
+
 const MAX_BUFFER = 8 * 1024 * 1024;
 
 function run(args: string[], cwd: string): Promise<{ ok: boolean; stdout: string }> {
@@ -29,6 +36,24 @@ function run(args: string[], cwd: string): Promise<{ ok: boolean; stdout: string
       }
       resolve({ ok: true, stdout: String(stdout) });
     });
+  });
+}
+
+/** Like `run`, but keeps stdout as raw bytes so binaries survive the read. */
+function runBuffer(args: string[], cwd: string): Promise<{ ok: boolean; stdout: Buffer }> {
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      args,
+      { cwd, maxBuffer: MAX_BUFFER, timeout: 4000, encoding: "buffer" },
+      (err, stdout) => {
+        if (err) {
+          resolve({ ok: false, stdout: Buffer.alloc(0) });
+          return;
+        }
+        resolve({ ok: true, stdout: stdout as unknown as Buffer });
+      },
+    );
   });
 }
 
@@ -51,6 +76,32 @@ export async function readGitBaseline(workspace: string, relPath: string): Promi
     return { isRepo: true, content: null };
   }
   return { isRepo: true, content: show.stdout };
+}
+
+/**
+ * Byte-exact sibling of `readGitBaseline`. Binary content cannot round-trip through a
+ * utf8 string (invalid sequences become U+FFFD), so the binary/oversize path needs the
+ * raw bytes of the HEAD blob. Same traversal guard and repo probe as `readGitBaseline`.
+ */
+export async function readGitBaselineBytes(
+  workspace: string,
+  relPath: string,
+): Promise<GitBaselineBytes> {
+  const rel = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
+  const abs = path.resolve(workspace, rel);
+  const relFromWs = path.relative(workspace, abs);
+  if (!relFromWs || relFromWs.startsWith("..") || path.isAbsolute(relFromWs)) {
+    return { isRepo: false, bytes: null };
+  }
+  const inside = await run(["rev-parse", "--is-inside-work-tree"], workspace);
+  if (!inside.ok || inside.stdout.trim() !== "true") {
+    return { isRepo: false, bytes: null };
+  }
+  const show = await runBuffer(["show", `HEAD:${rel}`], workspace);
+  if (!show.ok) {
+    return { isRepo: true, bytes: null };
+  }
+  return { isRepo: true, bytes: show.stdout };
 }
 
 /** True when git is available and the workspace is a work tree (cheap check, cached by callers). */

@@ -46,9 +46,10 @@ Review Hub giải quyết cả hai bằng cách nằm **bên dưới** agent, �
 4. File đã đổi có **badge trong Explorer** (`M`/`A`/`D`, có màu, kèm dấu chấm ở folder cha) và
    một dòng trong panel **Review Hub** → biết file nào đổi mà không cần mở gì cả. Không có cửa
    sổ nào tự bật lên.
-5. Click vào file (trong Explorer hoặc dòng trong panel) để mở **tab review**: mỗi hunk hiện dòng
+5. Click vào dòng trong panel **Review Hub** để mở **tab review**: mỗi hunk hiện dòng
    cũ (nền đỏ) ngay trên dòng mới (nền xanh), kèm nút **✓** / **↺** cho từng hunk. Thấy code cũ
-   và mới cùng lúc.
+   và mới cùng lúc. (Badge trong Explorer chỉ báo file đã đổi — mở tab review từ dòng trong
+   panel, từ lệnh **Review Hub: Open Diff**, hoặc khi `review-hub.autoOpenDiff` bật.)
 6. Bấm **✓** một hunk → đúng các dòng mới của hunk đó được ghi lên đĩa. Bấm **↺** → không ghi
    gì, giữ nguyên dòng gốc.
 
@@ -179,8 +180,6 @@ Kết quả: repo lớn nằm yên rất êm, mà vẫn không bỏ sót thay đ
 | **Accept File** / **Reject File** | Duyệt/từ chối toàn bộ file |
 | **Undo File** | Reject mọi hunk trong file đang chọn |
 | **Accept All Changes** / **Reject All Changes** | Xử lý mọi thay đổi ở mọi project |
-| **Accept All in This Project** | Xử lý mọi thay đổi trong một project (nút trên dòng project) |
-| **Reject All in This Project** | Hoàn nguyên mọi thay đổi trong một project |
 | **Register MCP in all harnesses** | Ghi entry MCP vào config từng harness (có backup) |
 | **Install agent instructions** | Thêm khối Review Hub vào `AGENTS.md` / `CLAUDE.md` |
 | **Show Hub Info** | Hiện hub URL, PID và đường dẫn MCP server |

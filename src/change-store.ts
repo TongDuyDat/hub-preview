@@ -18,10 +18,20 @@ import type {
   Hunk,
 } from "./types";
 import { computeHunks, diffStats, diskFrame, rebaseDecisions, resolveLines, splitContent, joinContent } from "./hunk-diff";
-import { writeFileAtomic, deleteFileSafe, readFileSafe, resolveInside, toPosix, hashContent } from "./file-snapshot";
-import { JsonBackend, SqliteBackend, workspaceKey, type CheckpointRecord, type StoreBackend } from "./store-backend";
+import {
+  writeFileAtomic,
+  writeFileAtomicBytes,
+  deleteFileSafe,
+  readFileSafe,
+  readFileBytes,
+  resolveInside,
+  toPosix,
+  encodeBaseline,
+  decodeBaseline,
+} from "./file-snapshot";
+import { JsonBackend, SqliteBackend, type CheckpointRecord, type StoreBackend } from "./store-backend";
 import { openDatabase } from "./sqlite";
-import { readGitBaseline } from "./git-baseline";
+import { readGitBaseline, readGitBaselineBytes } from "./git-baseline";
 
 export interface SnapshotOptions {
   maxFileSize: number;
@@ -187,14 +197,37 @@ export class ChangeStore {
     this.excludeRes = this.excludeGlobs.map(globToRegExp);
 
     const mode = opts.backend ?? "auto";
-    const driver = mode === "json" ? undefined : openDatabase(path.join(this.baseDir, "hub.db"));
-    if (mode === "sqlite" && !driver) {
-      throw new Error("Review Hub: the sqlite backend was requested but node:sqlite is unavailable.");
+    if (mode === "json") {
+      this.backend = new JsonBackend(this.baseDir);
+      return;
     }
-    this.backend =
-      driver !== undefined
-        ? new SqliteBackend(driver, this.baseDir)
-        : new JsonBackend(this.baseDir);
+    const driver = openDatabase(path.join(this.baseDir, "hub.db"));
+    if (!driver) {
+      if (mode === "sqlite") {
+        throw new Error("Review Hub: the sqlite backend was requested but node:sqlite is unavailable.");
+      }
+      this.backend = new JsonBackend(this.baseDir);
+      return;
+    }
+    try {
+      this.backend = new SqliteBackend(driver, this.baseDir);
+    } catch (err) {
+      // A present-but-unusable file (corrupt, wrong format, permissions) must not take
+      // activation down: the spec promises a JSON fallback. The driver may already be
+      // half-open, so close it before dropping it.
+      try {
+        driver.close();
+      } catch {
+        // best effort
+      }
+      if (mode === "sqlite") {
+        throw err;
+      }
+      console.warn(
+        `Review Hub: the SQLite store could not be opened (${(err as Error).message}); using the JSON store.`,
+      );
+      this.backend = new JsonBackend(this.baseDir);
+    }
   }
 
   /** Release backend resources (the SQLite connection). Safe to call twice. */
@@ -468,6 +501,35 @@ export class ChangeStore {
   }
 
   /**
+   * Byte-exact baseline for the binary / oversize observe path.
+   *
+   * The string path (`baselineForObserve`) cannot be reused here: a utf8 round-trip of a
+   * real binary mangles every invalid sequence, so comparing or restoring it would corrupt
+   * the file. Baselines are therefore stored as `b64:`-prefixed base64 (see
+   * `encodeBaseline`), and a plain utf8 blob written by `setCheckpoint` still decodes.
+   */
+  private async baselineBytesForObserve(
+    workspace: string,
+    relPath: string,
+  ): Promise<{ bytes: Buffer; exists: boolean }> {
+    const rel = toPosix(relPath);
+    const cp = this.readCheckpoint(workspace);
+    const hash = cp?.files[rel];
+    if (hash) {
+      return { bytes: decodeBaseline(this.getBaseline(workspace, hash)), exists: true };
+    }
+    const git = await readGitBaselineBytes(workspace, rel);
+    if (git.isRepo && git.bytes !== null) {
+      // Record it so later observations of the same file are consistent.
+      const cpNow = this.readCheckpoint(workspace) ?? { workspace, setAt: Date.now(), files: {} };
+      cpNow.files[rel] = this.putBaseline(workspace, encodeBaseline(git.bytes));
+      this.writeCheckpoint(workspace, cpNow);
+      return { bytes: git.bytes, exists: true };
+    }
+    return { bytes: Buffer.alloc(0), exists: false };
+  }
+
+  /**
    * Resolve the baseline for a path.
    *
    * `capture: true` (the MCP propose path) reads the current disk content as the
@@ -562,10 +624,10 @@ export class ChangeStore {
     }
     const read = readFileSafe(abs);
     if (read.exists && read.binary) {
-      return await this.observeBinary(workspace, rel, abs, read.hash);
+      return await this.observeBinary(workspace, rel, abs);
     }
     if (read.exists && Buffer.byteLength(read.content) > this.maxFileSize) {
-      return await this.observeBinary(workspace, rel, abs, read.hash);
+      return await this.observeBinary(workspace, rel, abs);
     }
     const base = await this.baselineForObserve(workspace, rel);
     const existing = this.findChangeByPath(workspace, rel);
@@ -618,11 +680,17 @@ export class ChangeStore {
     return cs;
   }
 
-  private async observeBinary(workspace: string, rel: string, abs: string, hash: string): Promise<ChangeSet | undefined> {
-    const base = await this.baselineForObserve(workspace, rel);
+  private async observeBinary(workspace: string, rel: string, abs: string): Promise<ChangeSet | undefined> {
+    // The caller only routes here when the file exists on disk.
+    const currentBytes = readFileBytes(abs);
+    if (!currentBytes) {
+      return undefined;
+    }
+    const base = await this.baselineBytesForObserve(workspace, rel);
     const existing = this.findChangeByPath(workspace, rel);
-    const baseHash = hashContent(base.content);
-    if (base.exists && baseHash === hash) {
+    // Compare bytes, not hashes: a hash comparison would need the same mangled string
+    // round-trip the baseline deliberately avoids.
+    if (base.exists && base.bytes.equals(currentBytes)) {
       if (existing) {
         this.removeChange(existing);
       }
@@ -639,7 +707,7 @@ export class ChangeStore {
       bom: false,
       finalNewline: false,
       binary: true,
-      baseline: base.content,
+      baseline: encodeBaseline(base.bytes),
       proposed: "",
       baselineExists: base.exists,
       proposedExists: true,
@@ -692,18 +760,20 @@ export class ChangeStore {
     const pendingMode = diskFrame(cs.origin);
     const baselineLines = splitContent(cs.baseline).lines;
     const resolvedLines = resolveLines(baselineLines, cs.hunks, pendingMode);
-    const resolved = joinContent(resolvedLines, this.resolvedMeta(cs, decision));
-    this.applyToDisk(cs, resolved);
+    // A binary change carries a base64 baseline, not line content: it must never be
+    // line-split or rebuilt. `applyToDisk`/`advanceBaseline` read the real bytes instead.
+    const resolved = cs.binary ? "" : joinContent(resolvedLines, this.resolvedMeta(cs, decision));
+    this.applyToDisk(cs, resolved, decision);
 
     if (fullyDecided) {
-      this.advanceBaseline(cs, resolved);
+      this.advanceBaseline(cs, resolved, decision);
       cs.status = "resolved";
       cs.updatedAt = Date.now();
       // Keep the resolved set on disk (instead of deleting it) so an open review tab can
       // still render the final state — old lines only for a reject, new lines only for an
       // accept. Deleting it immediately made the tab go blank the instant the last hunk
-      // was decided. `listChangesRaw` hides resolved sets from the tree and status bar,
-      // and `pruneResolved` removes them once they are stale.
+      // was decided. `listChanges` hides resolved sets from the tree and status bar, and
+      // `pruneResolved` removes them once they are stale.
       this.writeChange(cs);
       return { changeId: cs.id, status: "resolved", resolved: true, remaining: 0, hunks: cs.hunks };
     }
@@ -717,9 +787,10 @@ export class ChangeStore {
    * Framing (EOL / BOM / trailing newline) for the resolved content.
    *
    * The change set records the framing of the *proposed* file, because that is what the
-   * agent wrote. But once no hunk remains accepted the resolved file is the baseline, so
-   * it must be rebuilt with the *baseline's* framing — otherwise a reject silently
-   * converts a file that had no trailing newline (or a BOM, or CRLF) into one that does.
+   * agent wrote. A modification keeps the baseline's line endings unless every hunk is
+   * accepted — a partial accept must not convert a CRLF file to LF (or drop a BOM, or add
+   * a trailing newline) on the lines the user never touched. A fully rejected change is
+   * also rebuilt with the baseline's framing, since the resolved file *is* the baseline.
    *
    * A framing-only proposal (same lines, different trailing newline) produces zero hunks,
    * so there the user's intent comes from the decision that was just made.
@@ -728,13 +799,21 @@ export class ChangeStore {
     cs: ChangeSet,
     decision: "accepted" | "rejected",
   ): { eol: "\n" | "\r\n"; bom: boolean; finalNewline: boolean } {
-    const allRejected =
-      cs.hunks.length === 0 ? decision === "rejected" : cs.hunks.every((h) => h.decision === "rejected");
-    if (allRejected) {
+    const baselineMeta = () => {
       const base = splitContent(cs.baseline);
       return { eol: base.eol, bom: base.bom, finalNewline: base.finalNewline };
+    };
+    const proposedMeta = () => ({ eol: cs.eol, bom: cs.bom, finalNewline: cs.finalNewline });
+    if (cs.hunks.length === 0) {
+      return decision === "rejected" ? baselineMeta() : proposedMeta();
     }
-    return { eol: cs.eol, bom: cs.bom, finalNewline: cs.finalNewline };
+    if (!cs.baselineExists) {
+      return proposedMeta();
+    }
+    if (cs.hunks.every((h) => h.decision === "accepted")) {
+      return proposedMeta();
+    }
+    return baselineMeta();
   }
 
   /**
@@ -756,13 +835,13 @@ export class ChangeStore {
     return cs.baselineExists || resolved.length > 0 || cs.proposedExists;
   }
 
-  private applyToDisk(cs: ChangeSet, resolved: string): void {
+  private applyToDisk(cs: ChangeSet, resolved: string, decision: "accepted" | "rejected"): void {
     if (cs.binary) {
-      // Binary: accept keeps current bytes; reject restores baseline bytes.
-      const allRejected = cs.hunks.length === 0 ? false : cs.hunks.every((h) => h.decision === "rejected");
-      if (allRejected) {
+      // Binary: accept keeps the agent's bytes already on disk; reject restores the
+      // baseline bytes exactly (or removes a file the agent created from nothing).
+      if (decision === "rejected") {
         if (cs.baselineExists) {
-          writeFileAtomic(cs.absPath, cs.baseline);
+          writeFileAtomicBytes(cs.absPath, decodeBaseline(cs.baseline));
         } else {
           deleteFileSafe(cs.absPath);
         }
@@ -785,9 +864,22 @@ export class ChangeStore {
    * entry is kept, and with the same hash), while a fully rejected new file leaves
    * nothing (so the entry is dropped).
    */
-  private advanceBaseline(cs: ChangeSet, resolved: string): void {
+  private advanceBaseline(cs: ChangeSet, resolved: string, decision: "accepted" | "rejected"): void {
     const cp = this.readCheckpoint(cs.workspace);
     if (!cp) {
+      return;
+    }
+    if (cs.binary) {
+      // A binary change has no line content to hash: read back whatever the decision left
+      // on disk (accept = the agent's bytes, reject = the restored baseline) and store it
+      // byte-exact, so the next observe compares equal and drops the change.
+      const bytes = readFileBytes(cs.absPath);
+      if (bytes) {
+        cp.files[cs.path] = this.putBaseline(cs.workspace, encodeBaseline(bytes));
+      } else {
+        delete cp.files[cs.path];
+      }
+      this.writeCheckpoint(cs.workspace, cp);
       return;
     }
     if (this.resolvedExists(cs, resolved)) {

@@ -16,7 +16,7 @@ import { DEFAULT_EXCLUDES, DEFAULT_INCLUDE_EXTENSIONS } from "./change-store";
 import { writeWindowState, clearWindowState, readWindowStates } from "./window-registry";
 import { buildAllPreviews, applyPreview } from "./harness-register";
 import { installedServerPath, nodeCommand, type McpLaunch } from "./harness-paths";
-import { HUB_PROTOCOL, type ChangeSummary, type CheckpointInfo, type FileNode } from "./types";
+import { HUB_PROTOCOL, type FileNode } from "./types";
 
 interface Config {
   enabled: boolean;
@@ -540,14 +540,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("review-hub.rejectFile", (arg?: FileNode) => decideFile(arg, "reject")),
     vscode.commands.registerCommand("review-hub.undoFile", (arg?: FileNode) => decideFile(arg, "reject")),
 
-    // Resolve every change in one project (the folder node's buttons).
-    vscode.commands.registerCommand("review-hub.acceptProject", (arg?: { kind?: string; workspace?: string }) =>
-      decideProject(arg?.workspace, "accept"),
-    ),
-    vscode.commands.registerCommand("review-hub.rejectProject", (arg?: { kind?: string; workspace?: string }) =>
-      decideProject(arg?.workspace, "reject"),
-    ),
-
     // Resolve every change in every project this window knows about.
     vscode.commands.registerCommand("review-hub.acceptAll", async () => {
       await decideMany(source.workspaces(), "accept");
@@ -646,15 +638,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (changeId) {
       await decideFileById(changeId, kind);
     }
-  }
-
-  /** Resolve every change in one workspace. */
-  async function decideProject(workspace: string | undefined, kind: "accept" | "reject") {
-    if (!workspace) {
-      void vscode.window.showWarningMessage("Review Hub: no project selected.");
-      return;
-    }
-    await decideMany([workspace], kind);
   }
 
   /** Resolve every change across the given workspaces. */
