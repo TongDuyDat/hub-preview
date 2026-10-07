@@ -93,5 +93,5 @@ test("a non-file URI is never decorated", () => {
   store.propose(ws, "a.ts", "changed\n");
   const provider = providerFor(store, ws);
 
-  assert.equal(provider.provideFileDecoration(vscode.Uri.parse("review-hub://merged/abc")), undefined);
+  assert.equal(provider.provideFileDecoration(vscode.Uri.parse("review-hub://baseline/abc")), undefined);
 });
