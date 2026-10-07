@@ -1,0 +1,774 @@
+import * as vscode from "vscode";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { Logger } from "./logger";
+import { HubServer } from "./hub-server";
+import { registry, pidAlive, defaultBaseDir, type HubEntry } from "./registry";
+import { ChangeContentProvider } from "./content-provider";
+import { HunkCodeLensProvider, DiffView } from "./diff-view";
+import { ChangesTreeProvider, type ChangesModel, type FileNode, type TreeNode } from "./changes-tree";
+import { WorkspaceWatcher } from "./workspace-watcher";
+import { ChangeDecorator } from "./change-decorator";
+import { ChangeFileDecorationProvider } from "./file-decorations";
+import { DEFAULT_EXCLUDES, DEFAULT_INCLUDE_EXTENSIONS } from "./change-store";
+import { writeWindowState, clearWindowState, readWindowStates } from "./window-registry";
+import { buildAllPreviews, applyPreview } from "./harness-register";
+import { installedServerPath, nodeCommand, type McpLaunch } from "./harness-paths";
+import { HUB_PROTOCOL, type ChangeSummary, type CheckpointInfo } from "./types";
+
+interface Config {
+  enabled: boolean;
+  watchDirectWrites: boolean;
+  maxFileSize: number;
+  excludeGlobs: string[];
+  ignoreWhitespace: boolean;
+  maxSnapshotFiles: number;
+  /** Automatically open the diff for a file the moment an agent changes it. */
+  autoOpenDiff: boolean;
+}
+
+function readConfig(): Config {
+  const c = vscode.workspace.getConfiguration("review-hub");
+  const userExcludes = c.get<string[]>("excludeGlobs", []);
+  // User excludes are additive; the built-in defaults (VCS, deps, ML artifacts) always apply.
+  const merged = Array.from(new Set([...DEFAULT_EXCLUDES, ...userExcludes]));
+  return {
+    enabled: c.get("enabled", true),
+    watchDirectWrites: c.get("watchDirectWrites", true),
+    maxFileSize: c.get("maxFileSize", 2 * 1024 * 1024),
+    excludeGlobs: merged,
+    ignoreWhitespace: c.get("ignoreWhitespace", false),
+    maxSnapshotFiles: c.get("maxSnapshotFiles", 5000),
+    autoOpenDiff: c.get("autoOpenDiff", false),
+  };
+}
+
+function workspaceFolders(): string[] {
+  return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+}
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const config = readConfig();
+  if (!config.enabled) {
+    return;
+  }
+  const logger = new Logger("Review Hub");
+  const baseDir = defaultBaseDir();
+
+  // Install the bundled MCP server to a stable path all harnesses can point at.
+  installMcpServer(context, baseDir, logger);
+
+  const hub = new HubServer({
+    baseDir,
+    maxFileSize: config.maxFileSize,
+    excludeGlobs: config.excludeGlobs,
+    // Declared before the UI exists; the closures below are wired once it does.
+    onChanged: (workspace, relPath) => hubChanged?.(workspace, relPath),
+    onResolved: () => hubResolved?.(),
+    // The MCP server routes a tool call by matching the agent's path against these, so a
+    // harness whose working directory is not the project being edited still lands in the
+    // right workspace.
+    liveWorkspaces: () => workspaceFolders(),
+    windowStates: () => readWindowStates(baseDir),
+  });
+  let hubChanged: ((workspace: string, relPath: string) => void) | undefined;
+  let hubResolved: (() => void) | undefined;
+
+  // ---- Host election (non-blocking) ----------------------------------------
+  // One shared hub serves every VS Code window and every project. The first window to
+  // acquire the registry lock becomes the host; later windows become clients that use
+  // the same file-backed store and never start a second hub or rewrite hub.json.
+  //
+  // This runs in the BACKGROUND. `withLock` can wait up to 20s for another window, and
+  // awaiting it here would stall activation — which is what made opening several windows
+  // at once feel like the UI was hanging and jumping around.
+  let isHost = false;
+  let hubEntry: HubEntry | undefined;
+  let disposed = false;
+
+  const electHost = async (): Promise<void> => {
+    try {
+      await registry.withLock(async () => {
+        // The window may have closed while we waited for the lock; starting a hub then
+        // would leave an orphan server with no window to own it.
+        if (disposed) {
+          return;
+        }
+        const existing = registry.readEntry();
+        if (existing && existing.pid !== process.pid && pidAlive(existing.pid)) {
+          isHost = false;
+          return;
+        }
+        const addr = await hub.start(0);
+        if (disposed) {
+          await hub.stop();
+          return;
+        }
+        hubEntry = {
+          url: addr.url,
+          token: addr.token,
+          pid: process.pid,
+          workspace: workspaceFolders()[0] ?? process.cwd(),
+          updatedAt: Date.now(),
+          protocol: HUB_PROTOCOL,
+        };
+        registry.writeEntry(hubEntry);
+        isHost = true;
+      });
+      if (!disposed) {
+        logger.info(isHost ? `hosting the shared hub at ${hubEntry?.url}` : "client mode: using the shared hub");
+      }
+    } catch (err) {
+      logger.error(`host election failed: ${String(err)}`);
+      if (!disposed) {
+        void vscode.window.showErrorMessage("Review Hub: failed to start the local hub server.");
+      }
+    }
+  };
+  void electHost();
+
+  // Keep hub.json alive while we host it: if it is deleted while we run (a cleanup, a
+  // stale-lock sweep, another tool), rewrite it so the MCP server can still find us.
+  // Starts immediately but no-ops until the background election decides we are the host.
+  const republish = () => {
+    if (!isHost || !hubEntry) {
+      return;
+    }
+    const entry = hubEntry;
+    try {
+      const current = registry.readEntry();
+      if (current && current.pid === process.pid && current.token === entry.token) {
+        return;
+      }
+      if (current && current.pid !== process.pid && pidAlive(current.pid)) {
+        return;
+      }
+      entry.updatedAt = Date.now();
+      registry.writeEntry(entry);
+      logger.info("re-published hub registry (hub.json was missing or stale)");
+    } catch {
+      // best effort
+    }
+  };
+  const republishTimer = setInterval(republish, 5000);
+  context.subscriptions.push({ dispose: () => clearInterval(republishTimer) });
+
+  const provider = new ChangeContentProvider(hub.store);
+  const codeLens = new HunkCodeLensProvider(hub.store);
+  const decorator = new ChangeDecorator(hub.store);
+  // A badge on every changed file in the Explorer, so the user sees what needs review
+  // without opening a diff.
+  const fileDecorations = new ChangeFileDecorationProvider(hub.store, workspaceFolders);
+
+  const model: ChangesModel = {
+    checkpoint: (ws) => hub.store.checkpointInfo(ws),
+    summaries: (ws) => hub.store.listChanges(ws),
+    // Only this window's own folders. The store is shared across windows, but a window
+    // must show only the project the user has open here — not changes from other windows.
+    workspaces: () => workspaceFolders(),
+  };
+  const tree = new ChangesTreeProvider(model);
+  const treeView = vscode.window.createTreeView("review-hub.changes", { treeDataProvider: tree });
+
+  const diffView = new DiffView(hub.store, provider, codeLens, () => {
+    refreshUi();
+  });
+  decorator.start();
+
+  /**
+   * One place to refresh everything that reflects change state: the Changes tree, the
+   * inline decorations on real files, the Explorer badges, and the status bar. Called from
+   * the watcher, the hub events, every decision, and the commands.
+   */
+  function refreshUi(): void {
+    tree.refresh();
+    decorator.refreshAll();
+    fileDecorations.refresh();
+    updateStatus();
+  }
+
+  // Like Antigravity: when an agent changes a file, open the MERGED review view beside the
+  // editor — one document showing the old lines (red) above the new lines (green) with
+  // per-hunk Accept/Reject. A plain highlight on the real file could only show the new
+  // lines (VS Code injected text is single-line), so the old code would be invisible.
+  const autoOpened = new Set<string>();
+  const pendingAutoOpen = new Map<string, { workspace: string; path: string }>();
+  let autoOpenTimer: NodeJS.Timeout | undefined;
+  const scheduleAutoOpen = (workspace: string, relPath: string) => {
+    if (!config.autoOpenDiff) {
+      return;
+    }
+    // Never touch the UI for a change outside this window's own folders: opening a file
+    // from another project would yank focus and clutter this window's editor.
+    if (!workspaceFolders().includes(workspace)) {
+      return;
+    }
+    pendingAutoOpen.set(`${workspace}\u0000${relPath}`, { workspace, path: relPath });
+    if (autoOpenTimer) {
+      clearTimeout(autoOpenTimer);
+    }
+    autoOpenTimer = setTimeout(() => {
+      autoOpenTimer = undefined;
+      void flushAutoOpen();
+    }, 600);
+  };
+  const flushAutoOpen = async () => {
+    const queued = Array.from(pendingAutoOpen.values());
+    pendingAutoOpen.clear();
+    for (const { workspace, path: relPath } of queued) {
+      if (!workspaceFolders().includes(workspace)) {
+        continue;
+      }
+      const cs = hub.store.findChangeByPath(workspace, relPath);
+      if (!cs || cs.binary || cs.hunks.length === 0) {
+        continue;
+      }
+      if (autoOpened.has(cs.id)) {
+        continue;
+      }
+      autoOpened.add(cs.id);
+      try {
+        // Open the merged old+new review view beside the editor, without stealing focus.
+        await diffView.open(cs.id);
+      } catch {
+        // file may have been deleted; ignore
+      }
+      refreshUi();
+    }
+  };
+
+  const watcher = new WorkspaceWatcher(
+    hub.store,
+    workspaceFolders,
+    config.excludeGlobs,
+    (ws, relPath) => {
+      refreshUi();
+      scheduleAutoOpen(ws, relPath);
+    },
+    DEFAULT_INCLUDE_EXTENSIONS,
+  );
+  if (config.watchDirectWrites) {
+    watcher.start();
+  }
+
+  // Route hub events (the MCP path) into the same UI refresh + auto-open as the watcher.
+  hubChanged = (workspace, relPath) => {
+    refreshUi();
+    if (relPath) {
+      scheduleAutoOpen(workspace, relPath);
+    }
+  };
+  hubResolved = () => {
+    refreshUi();
+  };
+
+  // The store is file-backed and shared across windows. A window that is not the hub
+  // host gets no hub events, and even the host does not see edits another window's
+  // agent made through the shared store. Poll cheaply so every window stays in sync:
+  // the store's own cache revalidates by directory mtime, so this is a few stats.
+  let seenChangeIds = new Set<string>();
+  let primed = false;
+  const pollTimer = setInterval(() => {
+    try {
+      const before = seenChangeIds;
+      const now = new Set<string>();
+      let changed = false;
+      for (const ws of model.workspaces()) {
+        for (const s of hub.store.listChanges(ws)) {
+          now.add(s.id);
+          if (!before.has(s.id)) {
+            changed = true;
+            // On the very first tick, adopt whatever is already on disk as "seen"
+            // without opening anything: those changes existed before this window
+            // opened, and auto-opening them would yank focus in a burst (the UI
+            // "jumping around" on startup). Only changes that arrive after priming
+            // are auto-opened.
+            if (primed) {
+              scheduleAutoOpen(ws, s.path);
+            }
+          }
+        }
+      }
+      // Also detect removals (a change resolved in another window).
+      if (primed && now.size !== before.size) {
+        changed = true;
+      }
+      seenChangeIds = now;
+      if (changed && primed) {
+        refreshUi();
+      }
+      primed = true;
+    } catch {
+      // best effort
+    }
+  }, 2000);
+  context.subscriptions.push({ dispose: () => clearInterval(pollTimer) });
+
+  // Resolved change sets are kept briefly so an open review tab can render its final
+  // state; sweep the stale ones so they do not accumulate on disk.
+  const pruneTimer = setInterval(() => {
+    try {
+      hub.store.pruneResolved();
+    } catch {
+      // best effort
+    }
+  }, 60_000);
+  context.subscriptions.push({ dispose: () => clearInterval(pruneTimer) });
+
+  // ---- Cross-window routing state ------------------------------------------
+  // Publish this window's folders and active file so the shared hub can route an agent's
+  // relative path to the project the user is actually working in — even when the agent's
+  // harness was launched from a different directory.
+  let focusedAt = Date.now();
+  const publishWindowState = () => {
+    writeWindowState(baseDir, {
+      pid: process.pid,
+      folders: workspaceFolders(),
+      activeFile: vscode.window.activeTextEditor?.document.uri.fsPath,
+      focusedAt,
+      updatedAt: Date.now(),
+    });
+  };
+  publishWindowState();
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(() => publishWindowState()),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => publishWindowState()),
+    vscode.window.onDidChangeWindowState((s) => {
+      if (s.focused) {
+        focusedAt = Date.now();
+        publishWindowState();
+      }
+    }),
+    { dispose: () => clearWindowState(baseDir, process.pid) },
+  );
+
+  // Status bar.
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  status.command = "review-hub.openChanges";
+  const updateStatus = () => {
+    const total = model.workspaces().reduce((n, ws) => n + hub.store.listChanges(ws).length, 0);
+    if (total === 0) {
+      status.hide();
+      return;
+    }
+    status.text = `$(diff) Review Hub: ${total} file${total === 1 ? "" : "s"}`;
+    status.tooltip = "Click to review AI-made changes";
+    status.show();
+  };
+  updateStatus();
+
+  // Per-session model: NO workspace walk on activation. A file's baseline comes from
+  // git HEAD (free) or is captured lazily the moment the agent proposes a change, so
+  // opening a project costs nothing and a session with no changes shows nothing.
+  refreshUi();
+
+  const resolveChange = async (arg: FileNode | vscode.Uri | string | undefined): Promise<string | undefined> => {
+    if (typeof arg === "string") {
+      return arg;
+    }
+    // A Uri arrives when the command runs from the Explorer (context menu / a click on a
+    // decorated file); look up its change set directly.
+    if (arg && typeof arg === "object" && "fsPath" in arg) {
+      for (const ws of workspaceFolders()) {
+        const root = ws.replace(/[\\/]+$/, "");
+        const fsPath = (arg as vscode.Uri).fsPath;
+        if (!fsPath.startsWith(root + "/") && !fsPath.startsWith(root + "\\")) {
+          continue;
+        }
+        const rel = fsPath.slice(root.length + 1).split("\\").join("/");
+        const cs = hub.store.findChangeByPath(root, rel);
+        if (cs) {
+          return cs.id;
+        }
+      }
+      return undefined;
+    }
+    if (arg && typeof arg === "object" && "kind" in arg && arg.kind === "file") {
+      return arg.summary.id;
+    }
+    // Fall back to the active diff tab.
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input as { modified?: vscode.Uri } | undefined;
+        if (input?.modified?.scheme === "review-hub") {
+          return input.modified.path.replace(/^\//, "");
+        }
+      }
+    }
+    return undefined;
+  };
+
+  /**
+   * Apply one Accept/Reject click. Never leaves the UI without a response: the decision
+   * itself is a synchronous disk write, and any failure is surfaced as an error message
+   * rather than being swallowed by the command runner. A guard stops a double-click (or a
+   * click on a stale CodeLens) from stacking overlapping refreshes.
+   */
+  const deciding = new Set<string>();
+  const decide = async (changeId: string, hunkIds: string[] | undefined, kind: "accept" | "reject") => {
+    const cs = hub.store.findById(changeId);
+    if (!cs) {
+      // The change was resolved in another window, pruned, or the CodeLens is stale.
+      void vscode.window.showInformationMessage("Review Hub: this change is no longer pending — refreshing.");
+      refreshUi();
+      return;
+    }
+    const key = `${changeId}\u0000${hunkIds?.join(",") ?? "*"}`;
+    if (deciding.has(key)) {
+      return;
+    }
+    deciding.add(key);
+    try {
+      // Diagnostic: a click that changes nothing means the id it carried was not in the
+      // set (a stale lens) or the hunk was already decided. Log both so a "button does
+      // nothing" report can be traced from the Output channel alone.
+      const prior = (hunkIds ?? []).map((id) => {
+        const h = cs.hunks.find((x) => x.id === id);
+        return `${id}=${h ? h.decision : "NOT_FOUND"}`;
+      });
+      logger.info(
+        `${kind} click ${changeId}: hunkIds=[${prior.join(", ")}] total=${cs.hunks.length} pendingBefore=${cs.hunks.filter((h) => h.decision === "pending").length}`,
+      );
+      const result = kind === "accept" ? hub.store.accept(changeId, hunkIds) : hub.store.reject(changeId, hunkIds);
+      // Ignore the watcher echo for the file we just wrote.
+      if (result.status === "resolved" || cs.applied) {
+        watcher.noteSelfWrite(cs.absPath);
+      }
+      await diffView.refresh(changeId);
+      refreshUi();
+      logger.info(`${kind} ${changeId} -> ${result.status} (remaining ${result.remaining})`);
+    } catch (err) {
+      logger.error(`${kind} ${changeId} failed: ${String(err)}`);
+      void vscode.window.showErrorMessage(
+        `Review Hub: could not ${kind} the change in ${cs.path} — ${err instanceof Error ? err.message : String(err)}`,
+      );
+      // Still refresh: a partial write may have landed, and the UI must not stay stale.
+      refreshUi();
+    } finally {
+      deciding.delete(key);
+    }
+  };
+
+  context.subscriptions.push(
+    treeView,
+    status,
+    provider,
+    watcher,
+    diffView,
+    fileDecorations,
+    vscode.workspace.registerTextDocumentContentProvider("review-hub", provider),
+    vscode.window.registerFileDecorationProvider(fileDecorations),
+    vscode.languages.registerCodeLensProvider({ scheme: "review-hub" }, codeLens),
+    vscode.languages.registerCodeLensProvider({ scheme: "file" }, codeLens),
+    decorator,
+
+    vscode.commands.registerCommand("review-hub.refresh", () => {
+      refreshUi();
+    }),
+    vscode.commands.registerCommand("review-hub.openChanges", () =>
+      vscode.commands.executeCommand("review-hub.changes.focus"),
+    ),
+    vscode.commands.registerCommand("review-hub.openDiff", async (arg?: FileNode | vscode.Uri | string) => {
+      const changeId = await resolveChange(arg);
+      if (changeId) {
+        await diffView.open(changeId);
+      }
+    }),
+    // Open the classic side-by-side (baseline | proposed) diff instead of the merged view.
+    vscode.commands.registerCommand("review-hub.openSideBySide", async (arg?: FileNode | vscode.Uri | string) => {
+      const changeId = await resolveChange(arg);
+      if (changeId) {
+        await diffView.openSideBySide(changeId);
+      }
+    }),
+    // Open the real file on disk (the new content), for editing in place.
+    vscode.commands.registerCommand("review-hub.openFile", async (arg?: FileNode | vscode.Uri | string) => {
+      const changeId = await resolveChange(arg);
+      const cs = changeId ? hub.store.findById(changeId) : undefined;
+      if (cs) {
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(cs.absPath));
+        await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: false });
+      }
+    }),
+    vscode.commands.registerCommand("review-hub.acceptHunk", (changeId: string, hunkId: string) =>
+      decide(changeId, [hunkId], "accept"),
+    ),
+    vscode.commands.registerCommand("review-hub.rejectHunk", (changeId: string, hunkId: string) =>
+      decide(changeId, [hunkId], "reject"),
+    ),
+    vscode.commands.registerCommand("review-hub.acceptFile", (arg?: FileNode) => decideFile(arg, "accept")),
+    vscode.commands.registerCommand("review-hub.rejectFile", (arg?: FileNode) => decideFile(arg, "reject")),
+    vscode.commands.registerCommand("review-hub.undoFile", (arg?: FileNode) => decideFile(arg, "reject")),
+
+    // Resolve every change in one project (the folder node's buttons).
+    vscode.commands.registerCommand("review-hub.acceptProject", (arg?: { kind?: string; workspace?: string }) =>
+      decideProject(arg?.workspace, "accept"),
+    ),
+    vscode.commands.registerCommand("review-hub.rejectProject", (arg?: { kind?: string; workspace?: string }) =>
+      decideProject(arg?.workspace, "reject"),
+    ),
+
+    // Resolve every change in every project this window knows about.
+    vscode.commands.registerCommand("review-hub.acceptAll", async () => {
+      await decideMany(model.workspaces(), "accept");
+    }),
+    vscode.commands.registerCommand("review-hub.rejectAll", async () => {
+      await decideMany(model.workspaces(), "reject");
+    }),
+    vscode.commands.registerCommand("review-hub.setCheckpoint", async () => {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: "Review Hub: setting checkpoint…", cancellable: false },
+        async () => {
+          for (const ws of workspaceFolders()) {
+            await hub.store.setCheckpoint(ws, {
+              maxFileSize: config.maxFileSize,
+              excludeGlobs: config.excludeGlobs,
+              includeExtensions: DEFAULT_INCLUDE_EXTENSIONS,
+              maxFiles: config.maxSnapshotFiles,
+              maxDurationMs: 30_000,
+            });
+          }
+        },
+      );
+      refreshUi();
+      void vscode.window.showInformationMessage("Review Hub: checkpoint set — changes are measured from now.");
+    }),
+    vscode.commands.registerCommand("review-hub.clearCheckpoint", async () => {
+      const pick = await vscode.window.showWarningMessage(
+        "Clear the checkpoint? Future changes will have no baseline until you set a new one.",
+        { modal: true },
+        "Clear",
+      );
+      if (pick !== "Clear") {
+        return;
+      }
+      for (const ws of workspaceFolders()) {
+        hub.store.clearCheckpoint(ws);
+      }
+      refreshUi();
+    }),
+    vscode.commands.registerCommand("review-hub.registerMcp", () => registerMcp(baseDir, logger)),
+    vscode.commands.registerCommand("review-hub.installInstructions", () => installInstructions()),
+    vscode.commands.registerCommand("review-hub.showHubInfo", async () => {
+      const entry = registry.readEntry();
+      const msg = entry
+        ? `Hub: ${entry.url}\nPID: ${entry.pid} (alive: ${pidAlive(entry.pid)})\nWorkspace: ${entry.workspace}\nMCP server: ${installedServerPath(baseDir)}`
+        : "No hub registry entry.";
+      void vscode.window.showInformationMessage(msg, { modal: true });
+    }),
+
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      void (async () => {
+        for (const ws of workspaceFolders()) {
+          try {
+            await hub.store.ensureCheckpoint(ws, {
+              maxFileSize: config.maxFileSize,
+              excludeGlobs: config.excludeGlobs,
+              includeExtensions: DEFAULT_INCLUDE_EXTENSIONS,
+              maxFiles: config.maxSnapshotFiles,
+              maxScanned: 50_000,
+              maxDurationMs: 15_000,
+            });
+          } catch (err) {
+            logger.warn(`checkpoint for ${ws} failed: ${String(err)}`);
+          }
+        }
+        refreshUi();
+      })();
+    }),
+
+    // Only the host owns the hub and its registry entry. A client must not stop the
+    // shared hub or clear hub.json, or the still-running host would become unreachable.
+    // `isHost` is decided by the background election, so check it at dispose time.
+    {
+      dispose: () => {
+        disposed = true;
+        if (!isHost) {
+          return;
+        }
+        void hub.stop();
+        // Only clear the entry if it is still ours; another window may have taken over.
+        const current = registry.readEntry();
+        if (current && current.pid === process.pid) {
+          registry.clearEntry();
+        }
+      },
+    },
+    logger,
+  );
+
+  async function decideFile(arg: FileNode | undefined, kind: "accept" | "reject") {
+    const changeId = await resolveChange(arg);
+    if (changeId) {
+      await decide(changeId, undefined, kind);
+    }
+  }
+
+  /** Resolve every change in one workspace. */
+  async function decideProject(workspace: string | undefined, kind: "accept" | "reject") {
+    if (!workspace) {
+      void vscode.window.showWarningMessage("Review Hub: no project selected.");
+      return;
+    }
+    await decideMany([workspace], kind);
+  }
+
+  /** Resolve every change across the given workspaces. */
+  async function decideMany(workspaces: string[], kind: "accept" | "reject"): Promise<void> {
+    const total = workspaces.reduce((n, ws) => n + hub.store.listChanges(ws).length, 0);
+    if (total === 0) {
+      void vscode.window.showInformationMessage("Review Hub: nothing to review.");
+      return;
+    }
+    // Confirming avoids a stray click silently accepting (or discarding) a lot of work.
+    const label = kind === "accept" ? "Accept" : "Reject";
+    const where = workspaces.length === 1 ? path.basename(workspaces[0]) : `${workspaces.length} projects`;
+    const choice = await vscode.window.showWarningMessage(
+      `${label} all changes in ${where}? ${total} file${total === 1 ? "" : "s"} will be ${
+        kind === "accept" ? "kept" : "reverted to their baseline"
+      }.`,
+      { modal: true },
+      label,
+    );
+    if (choice !== label) {
+      return;
+    }
+
+    for (const ws of workspaces) {
+      for (const s of hub.store.listChanges(ws)) {
+        if (kind === "accept") {
+          hub.store.accept(s.id);
+        } else {
+          hub.store.reject(s.id);
+        }
+        const cs = hub.store.findById(s.id);
+        if (cs) {
+          watcher.noteSelfWrite(cs.absPath);
+        }
+      }
+    }
+    refreshUi();
+    logger.info(`${kind}All: ${total} change(s) across ${workspaces.length} workspace(s)`);
+  }
+
+  logger.info("Review Hub activated");
+}
+
+function installMcpServer(context: vscode.ExtensionContext, baseDir: string, logger: Logger): void {
+  try {
+    const bundled = context.asAbsolutePath(path.join("dist", "mcp-server.cjs"));
+    if (!fs.existsSync(bundled)) {
+      logger.warn(`bundled MCP server not found at ${bundled}`);
+      return;
+    }
+    const target = installedServerPath(baseDir);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const versionFile = path.join(baseDir, "bin", "version");
+    const version = String(context.extension.packageJSON.version ?? "0");
+    let installed = "";
+    try {
+      installed = fs.readFileSync(versionFile, "utf8").trim();
+    } catch {
+      // not installed yet
+    }
+    const bundledStat = fs.statSync(bundled);
+    const needsCopy = installed !== version || !fs.existsSync(target) || fs.statSync(target).size !== bundledStat.size;
+    if (needsCopy) {
+      const tmp = `${target}.${process.pid}.tmp`;
+      fs.copyFileSync(bundled, tmp);
+      fs.chmodSync(tmp, 0o755);
+      fs.renameSync(tmp, target);
+      fs.writeFileSync(versionFile, version);
+      logger.info(`installed MCP server to ${target} (v${version})`);
+    }
+  } catch (err) {
+    logger.warn(`could not install MCP server: ${String(err)}`);
+  }
+}
+
+async function registerMcp(baseDir: string, logger: Logger): Promise<void> {
+  const launch: McpLaunch = {
+    command: nodeCommand(),
+    args: [installedServerPath(baseDir)],
+    env: {},
+  };
+  const previews = buildAllPreviews(launch);
+  const items = previews.map((p) => ({
+    label: p.target.label,
+    description: p.exists ? (p.alreadyRegistered ? "update" : "add") : "file not found",
+    detail: p.target.file,
+    picked: p.exists,
+    preview: p,
+  }));
+  const picked = await vscode.window.showQuickPick(items, {
+    canPickMany: true,
+    title: "Review Hub: register MCP server in which harnesses?",
+    placeHolder: "Select harnesses to update (a .reviewhub.bak backup is written first)",
+  });
+  if (!picked || picked.length === 0) {
+    return;
+  }
+  const results = picked.map((p) => applyPreview(p.preview));
+  const ok = results.filter((r) => r.written).length;
+  const failed = results.filter((r) => !r.written);
+  const summary = results.map((r) => `${r.target.label}: ${r.written ? "ok" : `failed (${r.error})`}`).join("\n");
+  logger.info(`register MCP:\n${summary}`);
+  if (failed.length > 0) {
+    void vscode.window.showWarningMessage(`Review Hub: registered in ${ok} harness(es).\n${summary}`, { modal: true });
+  } else {
+    void vscode.window.showInformationMessage(`Review Hub: registered in ${ok} harness(es). Restart them to pick it up.`);
+  }
+}
+
+async function installInstructions(): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  if (folders.length === 0) {
+    void vscode.window.showWarningMessage("Review Hub: open a folder first.");
+    return;
+  }
+  const block = [
+    "<!-- review-hub:start -->",
+    "## Review Hub (required)",
+    "",
+    "This project uses Review Hub to review AI edits. **Do not use the built-in `edit`,",
+    "`write`, or shell commands to modify source files.** Use the Review Hub MCP tools",
+    "instead, so every change is recorded and the user can accept or reject each hunk:",
+    "",
+    "- `mcp__review_hub__propose_edit` — change a file. Same arguments as the native edit",
+    "  tool: `path`, `old_string`, `new_string`, optional `replace_all`.",
+    "  **Use this instead of `edit`.**",
+    "- `mcp__review_hub__propose_write` — create or replace a whole file (`path`, `content`).",
+    "  **Use this instead of `write`.**",
+    "- `mcp__review_hub__read_file` — read a file (`path`).",
+    "- `mcp__review_hub__list_changes` — list files changed since the last accepted checkpoint.",
+    "",
+    "A `propose_*` call returns `status: \"staged_for_review\"` with a `changeId`. That is",
+    "**success, not an error**. The edit is written and the user reviews it; do not retry with",
+    "a different tool and do not ask for confirmation.",
+    "",
+    "Only fall back to the built-in tools if a Review Hub tool returns an error saying the hub",
+    "is unreachable.",
+    "<!-- review-hub:end -->",
+    "",
+  ].join("\n");
+
+  for (const folder of folders) {
+    for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+      const file = vscode.Uri.joinPath(folder.uri, name);
+      let existing = "";
+      try {
+        existing = Buffer.from(await vscode.workspace.fs.readFile(file)).toString("utf8");
+      } catch {
+        existing = "";
+      }
+      const marker = /<!-- review-hub:start -->[\s\S]*?<!-- review-hub:end -->\n?/;
+      const next = marker.test(existing) ? existing.replace(marker, block) : `${existing}${existing.endsWith("\n") || existing === "" ? "" : "\n"}\n${block}`;
+      await vscode.workspace.fs.writeFile(file, Buffer.from(next, "utf8"));
+    }
+  }
+  void vscode.window.showInformationMessage("Review Hub: agent instructions installed in AGENTS.md / CLAUDE.md.");
+}
+
+export function deactivate(): void {
+  // subscriptions handle teardown
+}
