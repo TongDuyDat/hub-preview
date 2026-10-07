@@ -47,6 +47,20 @@ test("two sequential edits both succeed because the second sees the first", asyn
   }
 });
 
+test("an absolute in-workspace path reads the staged content too", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-fr-abs-"));
+  const { hub, call } = await hubOn(workspace, "alpha\nbeta\n");
+  try {
+    const absPath = path.join(workspace, "a.txt");
+    await call("/changes/propose", "POST", { workspace, path: absPath, content: "ALPHA\nbeta\n" });
+    const read = await call(`/file/read?workspace=${encodeURIComponent(workspace)}&path=${encodeURIComponent(absPath)}`);
+    assert.equal(read.content, "ALPHA\nbeta\n", "an absolute path resolves to the staged change");
+    assert.equal(read.staged, true, "the staged branch is taken for an absolute path");
+  } finally {
+    await hub.stop();
+  }
+});
+
 test("a rejected hunk is not part of the staged content", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-fr-rej-"));
   const { hub, call } = await hubOn(workspace, "one\ntwo\nthree\n");

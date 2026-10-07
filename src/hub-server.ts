@@ -6,6 +6,7 @@
  * No `vscode` import: unit-testable with a plain node:http client.
  */
 import * as http from "node:http";
+import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import { URL } from "node:url";
 import { ChangeStore, type SnapshotOptions } from "./change-store";
@@ -245,7 +246,11 @@ export class HubServer {
       this.send(res, 400, { error: { code: "bad_path", message: relPath } });
       return;
     }
-    const cs = this.store.findChangeByPath(workspace, toPosix(relPath));
+    // A ChangeSet's `path` is workspace-relative (see ChangeStore.propose), so derive the
+    // lookup key from the resolved absolute path: a caller may pass either a relative or an
+    // absolute in-workspace path, and only the relative form would otherwise match.
+    const relKey = toPosix(path.relative(workspace, abs));
+    const cs = this.store.findChangeByPath(workspace, relKey);
     if (cs && !cs.binary) {
       const base = splitContent(cs.baseline);
       const lines = resolveLines(base.lines, cs.hunks, "proposed");
