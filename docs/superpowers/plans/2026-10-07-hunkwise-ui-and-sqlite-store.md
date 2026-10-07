@@ -4313,15 +4313,33 @@ Expected: typecheck clean; `# pass 186`, `# fail 0` (180 + 6 new tab tests).
 **Files:**
 - Modify: `src/types.ts` (add `FileNode`)
 - Modify: `src/extension.ts` (replace the tree with the panel; add the review tab; re-point command arguments)
+- Modify: `package.json` (declare the sidebar view as a webview)
 - Delete: `src/changes-tree.ts`
-- Modify: `test/extension.test.ts` (add `extensionUri` to the fake context)
-- Modify: `test/extension.test.ts` (assert the panel and tab surfaces)
+- Modify: `test/extension.test.ts` (add `extensionUri` to the fake context; assert the sidebar view is registered)
 
 **Interfaces:**
 - Consumes: `ReviewPanelProvider`, `PanelActions` from `src/review-panel.ts`; `ReviewTab`, `TabSource`, `TabActions` from `src/review-tab.ts`; `PanelSource` from `src/review-panel-state.ts`; `buildReviewState` (not directly — the tab uses it).
 - Produces: `export interface FileNode { workspace: string; path: string }` in `src/types.ts`.
 
-- [ ] **Step 1: Add the plain `FileNode` to `src/types.ts`**
+- [ ] **Step 1: Declare the sidebar view as a webview in `package.json`**
+
+`contributes.views` currently declares `review-hub.changes` with no `type`, so VS Code treats it as a **tree** view and never calls `resolveWebviewView` — the panel would render blank in a real window (the test stub resolves it eagerly, so the tests cannot catch this). In `package.json`, add `"type": "webview"`:
+
+```json
+      "views": {
+        "review-hub": [
+          {
+            "id": "review-hub.changes",
+            "name": "Changes",
+            "type": "webview"
+          }
+        ]
+      },
+```
+
+Verify with: `node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).contributes.views['review-hub'][0].type)"` → `webview`.
+
+- [ ] **Step 2: Add the plain `FileNode` to `src/types.ts`**
 
 Append to `src/types.ts`:
 
@@ -4338,7 +4356,7 @@ export interface FileNode {
 }
 ```
 
-- [ ] **Step 2: Update the extension test first**
+- [ ] **Step 3: Update the extension test first**
 
 In `test/extension.test.ts`, add `extensionUri` to the fake context:
 
@@ -4368,12 +4386,12 @@ Then, after the `hub.json` assertion, add:
   assert.ok(vscode.__webviews.has("review-hub.changes"), "the sidebar panel view is registered");
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [ ] **Step 4: Run the test to verify it fails**
 
 Run: `npm test`
 Expected: `test/extension.test.ts` fails — *the sidebar panel view is registered* (the extension still creates a tree view).
 
-- [ ] **Step 4: Rewire `src/extension.ts`**
+- [ ] **Step 5: Rewire `src/extension.ts`**
 
 Replace the imports:
 
@@ -4579,7 +4597,7 @@ Replace the `treeView` entry in the big `context.subscriptions.push(...)` with `
 
 Leave `decorator` and `decorator.start()` exactly as they are. `DiffView.refresh` no longer calls `decorator.refreshAll()` (Task 10 Step 4 removed it) because its `onDidChange` callback is `refreshUi`, which now calls `decorator.refreshAll()` itself — so the decorations are still refreshed on every decision, exactly once.
 
-- [ ] **Step 5: Delete `src/changes-tree.ts`**
+- [ ] **Step 6: Delete `src/changes-tree.ts`**
 
 Run: `rm src/changes-tree.ts`
 
@@ -4589,12 +4607,12 @@ Run: `grep -rn "changes-tree" src/ mcp/ test/ || echo "no references"`
 
 Expected: `no references`.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `npm run typecheck && npm test`
 Expected: typecheck clean; `# pass 186`, `# fail 0`. `test/extension.test.ts` now asserts `review-hub.changes` is a webview view.
 
-- [ ] **Step 7: Verify the bundle builds and ships the media**
+- [ ] **Step 8: Verify the bundle builds and ships the media**
 
 Run: `npm run build && ls dist/ media/`
 Expected: `dist/extension.js`, `dist/mcp-server.cjs`, and `media/` containing `panel.html`, `panel.css`, `panel.js`, `review.html`, `review.css`, `review.js`, `review-hub.svg`.
