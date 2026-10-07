@@ -6,15 +6,17 @@
  * CodeLens directly on the file — so the user sees and resolves the change without
  * leaving the file, not only in the separate diff view.
  *
- * Under review-then-apply the disk holds the baseline plus the hunks the user has accepted,
- * so every anchor is computed in the "baseline" frame. A pending hunk is not on disk: its
+ * The disk holds the baseline plus the hunks the user has accepted — for an "mcp" change
+ * nothing else is written, while an "fs" change was written directly by the agent. Which
+ * frame that is comes from `diskFrame(origin)`, and a pending hunk is only absent from disk
+ * in the "baseline" frame. A hunk that is not on disk cannot have a coloured row: its
  * removal (or insertion) is previewed as ghost text, since VS Code injected text must be a
  * single line.
  */
 import * as vscode from "vscode";
 import type { ChangeStore } from "./change-store";
 import type { ChangeSet, Hunk } from "./types";
-import { splitContent, resolveHunkRanges } from "./hunk-diff";
+import { splitContent, diskFrame, resolveHunkRanges } from "./hunk-diff";
 
 /** Red/green foregrounds for the single-line ghost text, so a deletion reads as red. */
 const DELETED_COLOR = new vscode.ThemeColor("gitDecoration.deletedResourceForeground");
@@ -132,11 +134,15 @@ export class ChangeDecorator implements vscode.Disposable {
     const removed: vscode.DecorationOptions[] = [];
     const deleted: vscode.DecorationOptions[] = [];
 
-    // The disk holds the baseline plus the accepted hunks, so a hunk's line range must be
-    // computed in the "baseline" frame — not the proposed one. Accepting a hunk above
-    // changes how many lines it contributes, so `newStart` would colour the wrong lines.
+    // The frame the disk is in depends on the change's origin (see `diskFrame`): for an
+    // "mcp" change the disk holds the baseline, so a hunk's range is its baseline lines;
+    // for an "fs" change the agent wrote the file directly, so a pending hunk is already
+    // on disk and its range is the proposed one. Anchoring in the wrong frame colours the
+    // wrong lines as soon as one hunk above is decided.
+    const frame = diskFrame(cs.origin);
+    const pendingOnDisk = frame === "proposed";
     const ranges = new Map(
-      resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, "baseline").map((r) => [r.id, r]),
+      resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, frame).map((r) => [r.id, r]),
     );
 
     const lastLine = Math.max(0, doc.lineCount - 1);
@@ -144,10 +150,14 @@ export class ChangeDecorator implements vscode.Disposable {
       const label = hunkLabel(cs, hunk);
       const range = ranges.get(hunk.id);
       const start = clamp(range?.start ?? hunk.newStart, 0, lastLine);
+      // The resolved range's length is exactly how many of this hunk's lines are on disk.
       const span = range ? range.length : hunk.oldLines.length;
+      // A hunk's *new* lines are on disk when it was accepted, or when it is still pending
+      // in a frame where pending means "the agent's write is already there".
+      const newOnDisk = hunk.decision === "accepted" || (hunk.decision === "pending" && pendingOnDisk);
 
-      // GREEN — the accepted lines, which really are on disk now.
-      if (hunk.decision === "accepted" && span > 0) {
+      // GREEN — the new lines, which really are on disk now.
+      if (newOnDisk && span > 0) {
         const end = clamp(start + span - 1, start, lastLine);
         added.push({ range: new vscode.Range(start, 0, end, 0), hoverMessage: new vscode.MarkdownString(label) });
       }
@@ -160,26 +170,30 @@ export class ChangeDecorator implements vscode.Disposable {
         removed.push({ range: new vscode.Range(start, 0, end, 0), hoverMessage: new vscode.MarkdownString(label) });
       }
 
-      // GHOST — what the user cannot see in the file: a pending hunk's would-be removal
-      // (or insertion), and an accepted hunk's already-removed lines. Red for removals,
-      // green for insertions, so the deletion reads as red even without a red row.
-      if (hunk.decision === "pending" && hunk.oldLines.length > 0) {
+      // GHOST — only what the user cannot see in the file. Red for a removal, green for an
+      // insertion, so a deletion reads as red even though it cannot have a red row.
+      if (newOnDisk) {
+        // The new lines are visible, so the old ones are really gone: show what was removed.
+        if (hunk.oldLines.length > 0) {
+          deleted.push({
+            range: new vscode.Range(start, 0, start, 0),
+            hoverMessage: removedHover(label, hunk.oldLines),
+            renderOptions: { after: { contentText: ghostFor(hunk.oldLines), color: DELETED_COLOR } },
+          });
+        }
+      } else if (hunk.decision === "pending" && hunk.oldLines.length > 0) {
+        // Nothing written yet: preview the removal the user would be accepting.
         deleted.push({
           range: new vscode.Range(start, 0, start, 0),
           hoverMessage: pendingHover(label, hunk.oldLines, hunk.newLines),
           renderOptions: { after: { contentText: ghostFor(hunk.oldLines), color: DELETED_COLOR } },
         });
       } else if (hunk.decision === "pending" && hunk.newLines.length > 0) {
+        // Nothing written yet: preview the insertion the user would be accepting.
         deleted.push({
           range: new vscode.Range(start, 0, start, 0),
           hoverMessage: pendingHover(label, hunk.oldLines, hunk.newLines),
           renderOptions: { after: { contentText: addedGhostFor(hunk.newLines), color: ADDED_COLOR } },
-        });
-      } else if (hunk.decision === "accepted" && hunk.oldLines.length > 0) {
-        deleted.push({
-          range: new vscode.Range(start, 0, start, 0),
-          hoverMessage: removedHover(label, hunk.oldLines),
-          renderOptions: { after: { contentText: ghostFor(hunk.oldLines), color: DELETED_COLOR } },
         });
       }
     }

@@ -1,16 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveHunkRanges, splitContent } from "../src/hunk-diff";
+import { diskFrame, resolveHunkRanges, splitContent } from "../src/hunk-diff";
 
 /**
- * Real-file decorations under review-then-apply. The disk holds the BASELINE plus the
- * hunks the user has accepted, so every anchor is computed with `pendingMode = "baseline"`:
+ * Real-file decorations under review-then-apply. Which frame the disk is in depends on the
+ * change's origin (`diskFrame`): an "mcp" change is staged, so the disk holds the BASELINE
+ * plus the hunks the user has accepted; an "fs" change was written directly by the agent,
+ * so a pending hunk is already on disk in the PROPOSED frame.
+ *
+ * In the baseline frame (mcp):
  *   accepted — the new lines are on disk -> green background; the removed old lines are
  *              gone, so they are shown as red ghost text (`⊖`).
  *   pending  — the baseline lines are still on disk -> no background; the removal is
  *              previewed as red ghost text, or the insertion as green ghost text (`⊕`).
  *   rejected — the baseline lines are back and visible -> red background, so the user can
  *              see the rejection took effect. No ghost.
+ *
+ * In the proposed frame (fs) a pending hunk behaves like an accepted one: its new lines are
+ * on disk, so it is green and its removed lines are ghosted in red.
  *
  * Mirrors `ChangeDecorator.apply`, which needs the full editor surface to import.
  */
@@ -32,31 +39,33 @@ interface Mark {
 
 const BASELINE = ["a", "b", "c"];
 
-function marksFor(hunks: Hunk[], docLineCount: number): Mark {
+function marksFor(hunks: Hunk[], docLineCount: number, frame: "baseline" | "proposed" = "baseline"): Mark {
   const lastLine = Math.max(0, docLineCount - 1);
   const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
-  const ranges = new Map(resolveHunkRanges(BASELINE, hunks as never, "baseline").map((r) => [r.id, r]));
+  const pendingOnDisk = frame === "proposed";
+  const ranges = new Map(resolveHunkRanges(BASELINE, hunks as never, frame).map((r) => [r.id, r]));
   const out: Mark = { added: [], removed: [], ghost: [] };
   for (const h of hunks) {
     const range = ranges.get(h.id);
     const start = clamp(range?.start ?? h.newStart, 0, lastLine);
     const span = range ? range.length : h.oldLines.length;
-    if (h.decision === "accepted" && span > 0) {
+    const newOnDisk = h.decision === "accepted" || (h.decision === "pending" && pendingOnDisk);
+    if (newOnDisk && span > 0) {
       out.added.push([start, clamp(start + span - 1, start, lastLine)]);
     }
     if (h.decision === "rejected") {
       const redSpan = Math.max(1, span || h.newLines.length || h.oldLines.length);
       out.removed.push([start, clamp(start + redSpan - 1, start, lastLine)]);
     }
-    if (h.decision === "pending") {
+    if (newOnDisk) {
+      // The new lines are visible, so only a removal is worth ghosting.
       if (h.oldLines.length > 0) {
         out.ghost.push({ line: start, kind: "removed" });
-      } else if (h.newLines.length > 0) {
-        out.ghost.push({ line: start, kind: "added" });
       }
-    }
-    if (h.decision === "accepted" && h.oldLines.length > 0) {
+    } else if (h.decision === "pending" && h.oldLines.length > 0) {
       out.ghost.push({ line: start, kind: "removed" });
+    } else if (h.decision === "pending" && h.newLines.length > 0) {
+      out.ghost.push({ line: start, kind: "added" });
     }
   }
   return out;
@@ -113,6 +122,44 @@ test("a rejected hunk below an accepted one anchors in the baseline frame", () =
   ];
   const m = marksFor(hunks, 4);
   assert.deepEqual(m.removed, [[3, 3]], "the rejected hunk is anchored on baseline line 3");
+});
+
+// ---- the fs frame (the agent wrote the file directly) -------------------------
+
+test("diskFrame maps mcp to the baseline frame and fs to the proposed frame", () => {
+  // The single source of truth for the frame rule, shared by settle, the decorations and
+  // the CodeLens, so the three can never drift apart.
+  assert.equal(diskFrame("mcp"), "baseline", "a staged change leaves the disk on the baseline");
+  assert.equal(diskFrame("fs"), "proposed", "a direct write is already on disk");
+});
+
+test("an fs pending hunk is already on disk: green row and red ghost in the proposed frame", () => {
+  const m = marksFor([h({})], 3, "proposed");
+  assert.deepEqual(m.added, [[1, 1]], "the agent's write is on disk, so the new line is green");
+  assert.deepEqual(m.ghost, [{ line: 1, kind: "removed" }], "the replaced old line is gone: red ghost");
+  assert.deepEqual(m.removed, [], "nothing was rejected");
+});
+
+test("the same pending hunks anchor differently in the two frames", () => {
+  const hunks: Hunk[] = [
+    h({ id: "ins", oldStart: 0, oldLines: [], newStart: 0, newLines: ["x"] }),
+    h({ id: "rep", oldStart: 2, oldLines: ["c"], newStart: 3, newLines: ["C2"] }),
+  ];
+
+  // mcp (baseline frame): the disk holds the baseline, so the insertion is a green ghost
+  // and the replacement still sits on baseline line 3 (0-based 2).
+  const mcp = marksFor(hunks, 3, "baseline");
+  assert.deepEqual(mcp.added, [], "nothing is on disk for a staged change");
+  assert.deepEqual(mcp.ghost, [
+    { line: 0, kind: "added" },
+    { line: 2, kind: "removed" },
+  ]);
+
+  // fs (proposed frame): the agent's write is already on disk, so both hunks are green and
+  // the replacement is anchored one line lower, at its proposed line 4 (0-based 3).
+  const fs = marksFor(hunks, 4, "proposed");
+  assert.deepEqual(fs.added, [[0, 0], [3, 3]], "both hunks are on disk");
+  assert.deepEqual(fs.ghost, [{ line: 3, kind: "removed" }], "the replaced line is ghosted at its real position");
 });
 
 // ---- ghost text formatting ---------------------------------------------------

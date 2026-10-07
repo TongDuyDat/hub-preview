@@ -17,7 +17,7 @@ import type {
   DecideResult,
   Hunk,
 } from "./types";
-import { computeHunks, diffStats, rebaseDecisions, resolveLines, splitContent, joinContent } from "./hunk-diff";
+import { computeHunks, diffStats, diskFrame, rebaseDecisions, resolveLines, splitContent, joinContent } from "./hunk-diff";
 import { hashContent, readFileSafe, resolveInside, toPosix, writeFileAtomic, deleteFileSafe } from "./file-snapshot";
 import { readGitBaseline } from "./git-baseline";
 
@@ -769,7 +769,7 @@ export class ChangeStore {
     // framing-only difference (trailing newline) cannot trip it.
     if (existing && existing.origin === "mcp") {
       const diskLines = splitContent(proposed).lines;
-      const projected = resolveLines(splitContent(existing.baseline).lines, existing.hunks, "baseline");
+      const projected = resolveLines(splitContent(existing.baseline).lines, existing.hunks, diskFrame(existing.origin));
       if (diskLines.join("\n") === projected.join("\n")) {
         return existing;
       }
@@ -907,7 +907,8 @@ export class ChangeStore {
     //   "mcp" — the agent staged the edit and the disk still holds the baseline, so an
     //           undecided hunk must stay at its baseline lines until the user accepts it.
     //   "fs"  — the agent wrote the file directly, so an undecided hunk is already on disk.
-    const pendingMode = cs.origin === "mcp" ? "baseline" : "proposed";
+    // The rule itself lives in `diskFrame` so the decorations and CodeLens cannot drift.
+    const pendingMode = diskFrame(cs.origin);
     const baselineLines = splitContent(cs.baseline).lines;
     const resolvedLines = resolveLines(baselineLines, cs.hunks, pendingMode);
     const resolved = joinContent(resolvedLines, this.resolvedMeta(cs, decision));

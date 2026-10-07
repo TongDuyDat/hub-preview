@@ -7,7 +7,7 @@
  * or rejecting one hunk never shifts the line numbers of another.
  */
 import { diffArrays } from "diff";
-import type { Hunk, HunkDecision } from "./types";
+import type { ChangeOrigin, Hunk, HunkDecision } from "./types";
 
 export interface ContentInfo {
   lines: string[];
@@ -119,6 +119,17 @@ export function computeHunks(baselineLines: string[], proposedLines: string[]): 
 }
 
 /**
+ * Which frame the on-disk content is in for a change set.
+ *   "mcp" — the agent staged the edit, so the disk still holds the baseline: an
+ *           undecided hunk must be anchored at its baseline lines.
+ *   "fs"  — the agent wrote the file directly, so an undecided hunk is already on disk.
+ * Every anchor (decorations, CodeLens, settle) must use this so the frames cannot drift.
+ */
+export function diskFrame(origin: ChangeOrigin): "baseline" | "proposed" {
+  return origin === "mcp" ? "baseline" : "proposed";
+}
+
+/**
  * Rebuild file lines from the baseline by replaying each hunk's decision.
  * Hunks must be ordered by oldStart and non-overlapping (computeHunks guarantees this).
  *
@@ -127,6 +138,8 @@ export function computeHunks(baselineLines: string[], proposedLines: string[]): 
  *    already on disk (the apply-on-propose model) — an unreviewed hunk simply stays
  *    as the agent left it.
  *  - "baseline": keep the old lines. Correct when nothing has been written yet.
+ *
+ * Prefer `diskFrame(cs.origin)` to pick this for a change set.
  */
 export function resolveLines(
   baselineLines: string[],
@@ -178,6 +191,8 @@ export interface ResolvedHunkRange {
  * pending or accepted. As soon as one hunk is rejected its line count changes, so every
  * hunk below it shifts — anchoring on `newStart` then puts the highlight and the
  * Accept/Reject buttons on the wrong lines.
+ *
+ * Prefer `diskFrame(cs.origin)` to pick `pendingMode` for a change set.
  */
 export function resolveHunkRanges(
   baselineLines: string[],

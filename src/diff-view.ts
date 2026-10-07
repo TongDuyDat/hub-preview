@@ -14,7 +14,7 @@
 import * as vscode from "vscode";
 import type { ChangeStore } from "./change-store";
 import type { ChangeContentProvider } from "./content-provider";
-import { splitContent, resolveHunkRanges } from "./hunk-diff";
+import { splitContent, diskFrame, resolveHunkRanges } from "./hunk-diff";
 import { buildMergedView, type MergedView } from "./merged-diff";
 
 export class HunkCodeLensProvider implements vscode.CodeLensProvider {
@@ -60,16 +60,17 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     // The real file, so Accept/Reject is available without opening any review tab.
-    // Anchor on the BASELINE frame: the disk holds the baseline plus the accepted hunks,
-    // so accepting a hunk above changes how many lines it contributes, and `newStart`
-    // would put the buttons on the wrong line for every hunk below it.
+    // Anchor in the frame the disk is actually in (`diskFrame`): the baseline frame for a
+    // staged "mcp" change, the proposed frame for an "fs" change the agent wrote directly.
+    // Using the wrong frame puts the buttons on the wrong line as soon as one hunk above
+    // is decided, since that changes how many lines it contributes.
     if (uri.scheme === "file") {
       const cs = this.changeForFile(uri.fsPath);
       if (!cs || cs.binary) {
         return [];
       }
       const ranges = new Map(
-        resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, "baseline").map((r) => [r.id, r]),
+        resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, diskFrame(cs.origin)).map((r) => [r.id, r]),
       );
       return cs.hunks.flatMap((hunk, index) => {
         const anchor = ranges.get(hunk.id)?.start ?? hunk.newStart;
