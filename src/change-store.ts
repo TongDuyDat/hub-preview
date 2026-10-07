@@ -893,10 +893,11 @@ export class ChangeStore {
       // baseline bytes exactly (or removes a file the agent created from nothing).
       if (decision === "rejected") {
         if (cs.baselineExists) {
-          // The encoding is declared by `baselineB64`; when a backend did not persist that
-          // optional field (the SQLite row has no column for it), fall back to the
-          // `isEncodedBaseline` prefix check. `b64:`/`bin:` is unambiguous here because a
-          // text baseline is never written with that prefix (see `observeBinary`).
+          // `baselineB64` is authoritative whenever a backend persists it (the SQLite row has
+          // a `baseline_b64` column, backfilled from the stored prefix during migration). The
+          // `isEncodedBaseline` prefix check is only a fallback for a `ChangeSet` that omits the
+          // field — e.g. a hand-built one. `b64:`/`bin:` is unambiguous here because a text
+          // baseline is never written with that prefix (see `observeBinary`).
           const encoded = cs.baselineB64 ?? isEncodedBaseline(cs.baseline);
           writeFileAtomicBytes(cs.absPath, encoded ? decodeBaseline(cs.baseline) : Buffer.from(cs.baseline, "utf8"));
         } else {

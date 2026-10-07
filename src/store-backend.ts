@@ -455,6 +455,10 @@ export class SqliteBackend implements StoreBackend {
     const cols = this.driver.all<{ name: string }>("PRAGMA table_info(changes)");
     if (!cols.some((c) => c.name === "baseline_b64")) {
       this.driver.exec("ALTER TABLE changes ADD COLUMN baseline_b64 INTEGER NOT NULL DEFAULT 0");
+      // Backfill from the stored prefix: an encoded baseline was written as `bin:`/`b64:` + base64,
+      // a raw one is plain utf8. Keying off `binary` would be WRONG — oversize *text* rows also carry
+      // `binary = 1` but store raw utf8 (see `observeBinary`), and decoding those would corrupt them.
+      this.driver.run("UPDATE changes SET baseline_b64 = 1 WHERE substr(baseline, 1, 4) IN ('bin:', 'b64:')");
     }
   }
 

@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 import { ChangeStore } from "../src/change-store";
 import { SqliteBackend } from "../src/store-backend";
 import { openDatabase } from "../src/sqlite";
+import { encodeBaseline } from "../src/file-snapshot";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-enc-"));
@@ -139,6 +140,145 @@ CREATE TABLE changes (
   updated_at      INTEGER NOT NULL,
   UNIQUE (workspace, path)
 );`;
+
+/** The real bytes a `bin:` baseline decodes to — non-utf8, so a decode is observable. */
+const LEGACY_BYTES = Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe, 0x00, 0x41]);
+/** A plain utf8 baseline with no `bin:`/`b64:` prefix — the oversize-text shape. */
+const LEGACY_RAW_TEXT = "alpha line\nbeta line\n";
+
+/**
+ * Build a `hub.db` written by `46ad05d` (the rewound, no-`baseline_b64` schema), seed a
+ * single pre-existing `changes` row, and close it. A `ChangeStore` opened over the
+ * returned directory must migrate *and* backfill the encoding flag for that row.
+ */
+function legacyDb(row: { workspace: string; relPath: string; absPath: string; baseline: string }): string {
+  const dir = tmp();
+  const driver = openDatabase(path.join(dir, "hub.db"));
+  assert.ok(driver, "node:sqlite must be available for this test");
+  new SqliteBackend(driver!);
+  driver!.exec("DROP TABLE changes");
+  driver!.exec(OLD_CHANGES_TABLE);
+  driver!.run(
+    `INSERT INTO changes
+       (id, workspace, path, abs_path, origin, applied, status, eol, bom, final_newline,
+        binary, baseline, proposed, baseline_exists, proposed_exists, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    "legacy1",
+    row.workspace,
+    row.relPath,
+    row.absPath,
+    "fs",
+    1,
+    "pending",
+    "\n",
+    0,
+    0,
+    1, // binary = 1 for BOTH the encoded and the oversize-text legacy shapes
+    row.baseline,
+    "",
+    1,
+    1,
+    1,
+    1,
+  );
+  driver!.close();
+  return dir;
+}
+
+test("a pre-existing encoded binary row is backfilled and rejects byte-exactly", () => {
+  const ws = tmp();
+  const file = path.join(ws, "blob.bin");
+  // The agent's direct write is what is on disk now; reject must restore the baseline.
+  fs.writeFileSync(file, Buffer.from([0xaa, 0xbb, 0xcc]));
+  const dir = legacyDb({
+    workspace: ws,
+    relPath: "blob.bin",
+    absPath: file,
+    baseline: encodeBaseline(LEGACY_BYTES),
+  });
+
+  const store = new ChangeStore({ baseDir: dir, backend: "sqlite" });
+  const cs = store.findById("legacy1");
+  assert.ok(cs, "the pre-existing row is readable through the migrated store");
+  assert.equal(cs!.binary, true);
+  assert.equal(
+    cs!.baselineB64,
+    true,
+    "the migration backfilled the encoding flag from the stored `bin:` prefix",
+  );
+
+  const r = store.reject("legacy1");
+  assert.equal(r.resolved, true);
+  assert.ok(
+    fs.readFileSync(file).equals(LEGACY_BYTES),
+    `reject must restore the real bytes, not write the literal baseline string (got ${JSON.stringify(
+      fs.readFileSync(file, "utf8").slice(0, 16),
+    )})`,
+  );
+  store.dispose();
+});
+
+test("a pre-existing raw (oversize-text) row stays false and rejects as utf8 text", () => {
+  const ws = tmp();
+  const file = path.join(ws, "big.txt");
+  fs.writeFileSync(file, "agent wrote this\n");
+  const dir = legacyDb({
+    workspace: ws,
+    relPath: "big.txt",
+    absPath: file,
+    baseline: LEGACY_RAW_TEXT,
+  });
+
+  const store = new ChangeStore({ baseDir: dir, backend: "sqlite" });
+  const cs = store.findById("legacy1");
+  assert.ok(cs);
+  assert.equal(cs!.binary, true, "an oversize text row also carries binary = 1");
+  assert.equal(
+    cs!.baselineB64,
+    false,
+    "a raw utf8 baseline has no prefix and must NOT be flagged as encoded (the `binary` flag alone is not enough)",
+  );
+
+  const r = store.reject("legacy1");
+  assert.equal(r.resolved, true);
+  assert.equal(
+    fs.readFileSync(file, "utf8"),
+    LEGACY_RAW_TEXT,
+    "reject must write the raw text verbatim, not base64-decode it into garbage",
+  );
+  store.dispose();
+});
+
+test("the backfill is one-shot: re-opening an up-to-date database does not re-run it", () => {
+  const ws = tmp();
+  const file = path.join(ws, "blob.bin");
+  fs.writeFileSync(file, Buffer.from([0xaa]));
+  const dir = legacyDb({
+    workspace: ws,
+    relPath: "blob.bin",
+    absPath: file,
+    baseline: encodeBaseline(LEGACY_BYTES),
+  });
+
+  const first = new ChangeStore({ baseDir: dir, backend: "sqlite" });
+  assert.equal(first.findById("legacy1")!.baselineB64, true, "the legacy row is backfilled on first open");
+  first.dispose();
+
+  // The column now exists, so the `UPDATE` must not run again. Prove the guard by forcing
+  // a wrong value: a migration that ran unconditionally would "repair" it back to 1.
+  const driver = openDatabase(path.join(dir, "hub.db"));
+  assert.ok(driver);
+  driver!.run("UPDATE changes SET baseline_b64 = 0 WHERE id = ?", "legacy1");
+  driver!.close();
+
+  const second = new ChangeStore({ baseDir: dir, backend: "sqlite" });
+  assert.equal(
+    second.findById("legacy1")!.baselineB64,
+    false,
+    "the backfill runs only while adding the column, so a later value is left untouched",
+  );
+  second.dispose();
+});
 
 test("an existing hub.db without baseline_b64 is migrated on open", () => {
   const dir = tmp();

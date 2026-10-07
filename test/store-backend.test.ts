@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { JsonBackend, SqliteBackend, type StoreBackend } from "../src/store-backend";
-import { encodeBaseline } from "../src/file-snapshot";
+import { encodeBaseline, isEncodedBaseline } from "../src/file-snapshot";
 import { openDatabase } from "../src/sqlite";
 import type { ChangeSet } from "../src/types";
 
@@ -169,6 +169,20 @@ eachBackend((name, make) => {
     const txt = backend.getChange("/ws", "txt1");
     assert.ok(txt);
     assert.equal(txt!.baselineB64, false, "a plain baseline round-trips as false");
+
+    // A hand-built set that OMITS the field must still reach the same encoding decision on
+    // both backends: the SQLite column persists `false`, JSON leaves it absent, and the
+    // `?? isEncodedBaseline` fallback collapses both to the same answer.
+    backend.writeChange(
+      changeSet({ id: "omit1", path: "raw.bin", binary: true, baseline: "plain text\n" }),
+    );
+    const omit = backend.getChange("/ws", "omit1");
+    assert.ok(omit);
+    assert.equal(
+      omit!.baselineB64 ?? isEncodedBaseline(omit!.baseline),
+      false,
+      "an omitted flag resolves to 'raw' on both backends for a prefix-free baseline",
+    );
     backend.dispose();
   });
 });
