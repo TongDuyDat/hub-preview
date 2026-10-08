@@ -2,9 +2,9 @@
  * Explorer decorations: a coloured badge on every file an agent has changed, so the user
  * can see *which files* need review without opening a diff.
  *
- * This is the "always visible indicator" requirement. The badge mirrors git's vocabulary
- * (M/A/D) so it reads instantly, and `propagate` puts a dot on the containing folder, so a
- * change buried deep in the tree is still visible when the folder is collapsed.
+ * Đây là yêu cầu "chỉ báo luôn hiển thị" (always visible indicator). Huy hiệu (badge) mô phỏng
+ * quy ước của git (M/A/D) để nhận biết ngay lập tức, và `propagate` đặt một dấu chấm trên
+ * thư mục chứa, giúp thay đổi nằm sâu trong cây thư mục vẫn nhìn thấy được khi thư mục bị thu gọn.
  *
  * A file drops out of the decoration set as soon as every hunk is decided — the store hides
  * resolved change sets from `findChangeByPath`, so "badge present" means "still to review".
@@ -17,10 +17,7 @@ export class ChangeFileDecorationProvider implements vscode.FileDecorationProvid
   private emitter = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
   readonly onDidChangeFileDecorations = this.emitter.event;
 
-  constructor(
-    private store: ChangeStore,
-    private getWorkspaces: () => string[],
-  ) {}
+  constructor(private store: ChangeStore, private getWorkspaces: () => string[]) {}
 
   /** Re-evaluate every visible file's decoration. */
   refresh(): void {

@@ -1,10 +1,32 @@
 # Review Hub for VS Code
 
-See exactly what AI coding agents changed in your project — **regardless of their permission
-mode** — and accept or reject changes **one hunk at a time**.
+Xem **chính xác** AI coding agent đã đổi gì trong project của bạn — **bất kể agent chạy ở
+chế độ quyền nào** — và duyệt/từ chối **từng khối (hunk) một**, kiểu hunkwise.
 
-Hỗ trợ **Claude Code, opencode, dsh (deepseek-harness), Cline, Roo** qua MCP, và vẫn bắt được
-cả những agent không dùng MCP mà ghi thẳng vào file.
+Hỗ trợ **Claude Code, opencode, dsh (deepseek-harness), Cline, Roo Code** qua MCP, và vẫn bắt
+được cả những agent không dùng MCP mà ghi thẳng vào file.
+
+> **Điểm cốt lõi:** Review Hub **không ghi gì lên đĩa khi agent đề xuất thay đổi**. Thay đổi
+> được giữ lại kèm diff, và **chỉ những hunk bạn bấm ✓ mới thực sự được ghi xuống đĩa**.
+
+---
+
+## Mục lục
+
+1. [Vấn đề nó giải quyết](#1-vấn-đề-nó-giải-quyết)
+2. [Cách hoạt động: xem trước rồi mới ghi](#2-cách-hoạt-động-xem-trước-rồi-mới-ghi)
+3. [Hai bề mặt giao diện](#3-hai-bề-mặt-giao-diện)
+4. [Yêu cầu](#4-yêu-cầu)
+5. [Cài đặt](#5-cài-đặt)
+6. [Hướng dẫn sử dụng](#6-hướng-dẫn-sử-dụng)
+7. [Phát hiện thay đổi — hoạt động cả nơi inotify "tịt"](#7-phát-hiện-thay-đổi--hoạt-động-cả-nơi-inotify-tịt)
+8. [Danh sách lệnh](#8-danh-sách-lệnh)
+9. [MCP tools cho agent](#9-mcp-tools-cho-agent)
+10. [Cài đặt (Settings)](#10-cài-đặt-settings)
+11. [Lưu trữ](#11-lưu-trữ)
+12. [Ghi chú thiết kế](#12-ghi-chú-thiết-kế)
+13. [Xử lý sự cố](#13-xử-lý-sự-cố)
+14. [Phát triển](#14-phát-triển)
 
 ---
 
@@ -46,16 +68,12 @@ Review Hub giải quyết cả hai bằng cách nằm **bên dưới** agent, �
 4. File đã đổi có **badge trong Explorer** (`M`/`A`/`D`, có màu, kèm dấu chấm ở folder cha) và
    một dòng trong panel **Review Hub** → biết file nào đổi mà không cần mở gì cả. Không có cửa
    sổ nào tự bật lên.
-5. Click vào dòng trong panel **Review Hub** để mở **tab review**: mỗi hunk hiện dòng
-   cũ (nền đỏ) ngay trên dòng mới (nền xanh), kèm nút **✓** / **↺** cho từng hunk. Thấy code cũ
-   và mới cùng lúc. (Badge trong Explorer chỉ báo file đã đổi — mở tab review từ dòng trong
-   panel, từ lệnh **Review Hub: Open Diff**, hoặc khi `review-hub.autoOpenDiff` bật.)
+5. Click vào dòng trong panel để mở **tab review**: mỗi hunk hiện dòng cũ (nền đỏ) ngay trên
+   dòng mới (nền xanh), kèm nút **✓** / **↺** cho từng hunk. Thấy code cũ và mới cùng lúc.
 6. Bấm **✓** một hunk → đúng các dòng mới của hunk đó được ghi lên đĩa. Bấm **↺** → không ghi
    gì, giữ nguyên dòng gốc.
 
-Review Hub **không ghi gì lên đĩa khi agent đề xuất thay đổi**. Agent gọi `propose_edit` /
-`propose_write`, thay đổi được lưu lại kèm diff, và **chỉ những hunk bạn bấm ✓ mới được ghi
-lên đĩa**. Hunk chưa quyết định không tồn tại trên đĩa; hunk bị ↺ giữ nguyên nội dung gốc.
+Bảng trạng thái đĩa tương ứng:
 
 | Hành động | Trên đĩa sau đó |
 |---|---|
@@ -64,9 +82,9 @@ lên đĩa**. Hunk chưa quyết định không tồn tại trên đĩa; hunk b�
 | Bạn bấm ↺ một hunk | không ghi gì (giữ dòng gốc) |
 | Hunk chưa quyết định | không có trên đĩa |
 
-Hệ quả: nếu agent tự đọc file bằng công cụ riêng của nó, nó sẽ thấy **nội dung cũ**. Đó là
-đúng thiết kế, không phải lỗi. Agent nên đọc qua công cụ `read_file` của Review Hub để thấy
-bản đã đề xuất.
+> **Hệ quả cần nhớ:** nếu agent tự đọc file bằng công cụ riêng của nó, nó sẽ thấy **nội dung
+> cũ**. Đó là đúng thiết kế, không phải lỗi. Agent nên đọc qua công cụ `read_file` của Review
+> Hub để thấy bản đã đề xuất.
 
 ### Quyết định ở mức "khối", không phải cả file
 
@@ -86,12 +104,9 @@ C → reject   ⇒  C: đã hoàn nguyên
 
 File **vẫn giữ badge** cho tới khi B cũng được quyết định.
 
-File thật cũng có highlight inline (xanh cho dòng mới, đỏ cho dòng bị hoàn nguyên, chữ đã xoá
-hiện dạng ghost text) kèm nút Accept/Reject y như vậy, để bạn duyệt ngay tại chỗ. Khi cần chế độ
-2 cột cổ điển, dùng **Review Hub: Open Side-by-Side Diff**. Tính năng tự mở tab review mặc định
-**tắt** (`review-hub.autoOpenDiff`) để agent không làm gián đoạn việc bạn đang làm.
+---
 
-### Hai bề mặt giao diện
+## 3. Hai bề mặt giao diện
 
 - **Panel ở sidebar** (biểu tượng Review Hub trên thanh hoạt động): danh sách file kèm
   `+thêm −bớt`, mở ra xem từng hunk `@line N`, mỗi hunk có ✓ / ↺, kèm nút cấp file và cấp
@@ -101,37 +116,75 @@ hiện dạng ghost text) kèm nút Accept/Reject y như vậy, để bạn duy�
   khối đỏ nhiều dòng: API ổn định của VS Code không cho phép vẽ nhiều dòng chèn vào buffer
   thật (xem `docs/superpowers/specs/2026-10-07-hunkwise-ui-and-sqlite-store-design.md` §2.1).
 
+Ngoài ra, **file thật** cũng có highlight inline (xanh cho dòng mới, đỏ cho dòng bị hoàn
+nguyên, chữ đã xoá hiện dạng ghost text) kèm nút Accept/Reject, để bạn duyệt ngay tại chỗ.
+Khi cần chế độ 2 cột cổ điển, dùng **Review Hub: Open Side-by-Side Diff**.
+
 ---
 
-## 3. Yêu cầu
+## 4. Yêu cầu
 
 - **VS Code 1.103.0 trở lên.** Bản 1.85–1.102 dùng Electron cũ thiếu binding `node:sqlite`
   (lỗi đã được sửa ở Electron 37.2.3). Nếu không có SQLite, extension tự động chuyển sang
   kho JSON trong `~/.review-hub/workspaces/` — không hỏng, chỉ chậm hơn.
 - Node 22.13+ trong extension host (đi kèm VS Code 1.103+).
+- Khuyến nghị: project nằm trong **git repo** để baseline lấy được từ `git show HEAD:<path>`
+  (rẻ và chính xác). Workspace không phải git vẫn dùng được, chỉ khác cách lấy baseline.
 
 ---
 
-## 4. Bắt đầu nhanh
+## 5. Cài đặt
 
-### Cài đặt
+### 5.1. Cài extension
+
+**Cách A — cài từ file `.vsix` (dùng để thử):**
+
+```bash
+code --install-extension review-hub-vscode-0.1.1.vsix
+```
+
+Hoặc trong VS Code: mở **Extensions** (`Ctrl+Shift+X`) → menu `⋯` → **Install from VSIX…**
+→ chọn file `.vsix`.
+
+**Cách B — build từ source:**
 
 ```bash
 cd review-hub-vscode
 npm install
-npm run build
-npm run package          # tạo ra review-hub-vscode-<version>.vsix
+npm run build            # bundle dist/extension.js và dist/mcp-server.cjs
+npm run package          # tạo review-hub-vscode-<version>.vsix
 code --install-extension review-hub-vscode-*.vsix
 ```
 
-### Bật lên (3 bước, làm 1 lần)
+Sau khi cài, **reload cửa sổ** (`Ctrl+Shift+P` → `Developer: Reload Window`). Biểu tượng
+**Review Hub** sẽ xuất hiện trên thanh hoạt động bên trái.
 
-1. Chạy **Review Hub: Register MCP in all harnesses** và chọn những harness bạn dùng.
-2. Chạy **Review Hub: Install agent instructions** để thêm khối "ưu tiên dùng `propose_*`" vào
-   `AGENTS.md` / `CLAUDE.md`.
-3. Khởi động lại từng harness để nó nhận MCP server mới.
+> **Lưu ý:** nên build trên filesystem Linux native. Trên mount WSL `/mnt/*` (9p), `npm install`
+> chạy song song có thể ghi đè làm hỏng file.
 
-### Vòng làm việc hằng ngày
+### 5.2. Bật lên (làm 1 lần cho mỗi máy/harness)
+
+Mở **Command Palette** (`Ctrl+Shift+P`) và chạy:
+
+1. **`Review Hub: Register MCP in all harnesses`**
+   → chọn những harness bạn dùng. Extension ghi entry MCP vào config của từng harness
+   (**có backup** trước khi sửa) và trỏ vào bản copy cố định `~/.review-hub/bin/mcp-server.cjs`.
+
+2. **`Review Hub: Install agent instructions`**
+   → thêm khối `<!-- review-hub:start -->…<!-- review-hub:end -->` vào `AGENTS.md` / `CLAUDE.md`
+   của workspace, dạy agent ưu tiên gọi `propose_*` thay vì sửa file trực tiếp.
+
+3. **Khởi động lại từng harness** (đóng và mở lại Claude Code / opencode / dsh / Cline / Roo)
+   để nó nạp MCP server mới.
+
+Kiểm tra nhanh: chạy **`Review Hub: Show Hub Info`** → hiện hub URL, PID và đường dẫn MCP
+server. Nếu thấy thông tin tức là hub đang chạy.
+
+---
+
+## 6. Hướng dẫn sử dụng
+
+### 6.1. Vòng làm việc hằng ngày
 
 ```
 Agent sửa file  →  badge hiện trong Explorer + dòng trong panel Review Hub
@@ -140,9 +193,76 @@ Agent sửa file  →  badge hiện trong Explorer + dòng trong panel Review Hu
                 →  hết thay đổi thì file mất badge
 ```
 
+### 6.2. Duyệt trong panel sidebar (cách chính)
+
+1. Click biểu tượng **Review Hub** trên thanh hoạt động.
+2. Panel hiện tổng quan: `N files`, `+thêm −bớt`, và các nút **✓ Accept All** / **↺ Discard
+   All** / **⟳ Set checkpoint** ở trên cùng.
+3. Mỗi file là một dòng: tên file, `+thêm −bớt`, badge `new` / `deleted` / `binary` nếu có,
+   và hai nút **✓** (accept cả file) / **↺** (reject cả file).
+4. Click vào tên file (hoặc twisty `▾`) để **mở rộng** danh sách hunk. Mỗi hunk hiện
+   `@line N`, `+thêm −bớt`, và cặp nút **✓** / **↺**.
+5. Bấm **✓** để accept hunk đó (ghi dòng mới lên đĩa), **↺** để reject (giữ dòng gốc).
+   Sau khi quyết định, hunk hiện badge `✓ accepted` / `✗ rejected` kèm nút đảo ngược quyết định.
+6. Có nhiều project cùng mở? Panel nhóm theo workspace, mỗi nhóm có tiêu đề riêng.
+
+### 6.3. Duyệt trong tab review (diff đầy đủ, thấy cả dòng xoá nhiều dòng)
+
+1. Click vào tên file trong panel (hoặc nút **Open Diff**), hoặc chạy
+   **`Review Hub: Open Diff`**.
+2. Tab review hiện toàn bộ diff: **dòng bị xoá nền đỏ**, **dòng thêm nền xanh**, xen kẽ dòng
+   context.
+3. Trước mỗi hunk có thanh quyết định: `+thêm −bớt · trạng thái` cùng nút **✓ Accept** /
+   **↺ Reject**. Đã quyết định thì nút đổi thành **✓ Accepted** / **✗ Rejected** để bấm đảo lại.
+4. Trên cùng tab có **✓ Accept All** / **↺ Discard All** cho cả file.
+
+Mỗi file mở một tab riêng; mở lại cùng file sẽ focus tab đang có thay vì tạo tab mới.
+
+### 6.4. Duyệt ngay trên file thật (inline)
+
+Mở file thật (badge trong Explorer hoặc **`Review Hub: Open File`**). Bạn sẽ thấy:
+
+- Dòng mới của hunk đã accept: highlight **xanh**.
+- Dòng bị hoàn nguyên: highlight **đỏ**.
+- Phần chữ đã bị xoá: hiện dạng **ghost text** (chữ mờ sau dòng), kèm gợi ý `⊕ +N more added`
+  khi hunk chèn nhiều dòng.
+- CodeLens **Accept / Reject** ngay trên hunk để duyệt tại chỗ.
+
+### 6.5. Diff 2 cột cổ điển
+
+Chạy **`Review Hub: Open Side-by-Side Diff`** (hoặc chuột phải file trong Explorer) để mở diff
+`baseline | đề xuất` theo kiểu editor gốc của VS Code.
+
+### 6.6. Checkpoint — mốc để đo "đã đổi gì"
+
+Baseline là mốc so sánh. Bạn có thể đặt lại mốc:
+
+- **`Review Hub: Set Checkpoint`** — chấp nhận trạng thái hiện tại làm baseline mới (mọi thay
+  đổi đang chờ biến mất khỏi danh sách). Dùng khi bạn muốn "chốt" một trạng thái sạch.
+- **`Review Hub: Clear Checkpoint`** — xoá checkpoint hiện tại.
+
+Từ đó về sau, mọi thay đổi được đo so với mốc này.
+
+### 6.7. Xử lý agent **không** dùng MCP
+
+Nếu agent bỏ qua MCP và ghi thẳng xuống đĩa (ví dụ chạy ở chế độ auto-approve mà không đọc
+hướng dẫn), **file watcher** vẫn bắt được: file hiện badge và một dòng trong panel như bình
+thường, và bạn vẫn duyệt được theo hunk. Đây là cơ chế "lưới an toàn" — bật/tắt bằng setting
+`review-hub.watchDirectWrites`.
+
+> Trong luồng watcher, agent **đã** ghi vào đĩa rồi, nên trạng thái mặc định là "đã có trên
+> đĩa"; hunk chưa quyết định được coi là đang tồn tại trên đĩa cho tới khi bạn reject.
+
+### 6.8. Phím tắt / thao tác nhanh
+
+- `Ctrl+Shift+P` → gõ `Review Hub` để thấy mọi lệnh.
+- Chuột phải file trong Explorer → nhóm **Review Hub** (`Open Diff`, `Open Side-by-Side`,
+  `Accept File`, `Reject File`).
+- Thanh tiêu đề panel có sẵn: Set Checkpoint, Accept All, Reject All, Refresh.
+
 ---
 
-## 5. Phát hiện thay đổi — hoạt động cả nơi inotify "tịt"
+## 7. Phát hiện thay đổi — hoạt động cả nơi inotify "tịt"
 
 Hệ thống dùng **3 cơ chế** để không phụ thuộc vào việc filesystem có bắn event hay không:
 
@@ -165,7 +285,7 @@ Kết quả: repo lớn nằm yên rất êm, mà vẫn không bỏ sót thay đ
 
 ---
 
-## 6. Danh sách lệnh
+## 8. Danh sách lệnh
 
 | Lệnh | Tác dụng |
 |---|---|
@@ -186,20 +306,23 @@ Kết quả: repo lớn nằm yên rất êm, mà vẫn không bỏ sót thay đ
 
 ---
 
-## 7. MCP tools cho agent
+## 9. MCP tools cho agent
 
 | Tool | Mục đích |
 |---|---|
 | `propose_edit` | Stage một sửa đổi `old_string` → `new_string` (giống tool Edit gốc) |
 | `propose_write` | Stage việc ghi toàn bộ file |
-| `read_file` | Đọc file trong workspace qua hub |
+| `read_file` | Đọc file trong workspace qua hub (thấy cả nội dung đã stage) |
 | `list_changes` | Liệt kê các file đã đổi kể từ checkpoint cuối |
 | `accept` / `reject` | Duyệt/từ chối toàn bộ hoặc một số hunk cụ thể |
 | `set_checkpoint` | Đẩy baseline lên trạng thái hiện tại |
 
+`propose_*` trả về `status: "staged_for_review"` kèm `changeId`. Đó là **thành công**, không
+phải lỗi — agent không nên retry bằng tool khác.
+
 ---
 
-## 8. Cài đặt (Settings)
+## 10. Cài đặt (Settings)
 
 | Setting | Mặc định | Ý nghĩa |
 |---|---|---|
@@ -213,7 +336,7 @@ Kết quả: repo lớn nằm yên rất êm, mà vẫn không bỏ sót thay đ
 
 ---
 
-## 9. Lưu trữ
+## 11. Lưu trữ
 
 Tất cả nằm dưới `~/.review-hub/`:
 
@@ -261,7 +384,7 @@ tường minh, chạy **Review Hub: Set Checkpoint** (giới hạn bởi `review
 
 ---
 
-## 10. Ghi chú thiết kế
+## 12. Ghi chú thiết kế
 
 - **Các quyết định không đẩy nhau.** Hunk được tính một lần so với baseline, rồi file được dựng
   lại bằng cách replay các quyết định từ baseline. Accept hunk 1 **không** làm đổi số dòng của
@@ -274,12 +397,27 @@ tường minh, chạy **Review Hub: Set Checkpoint** (giới hạn bởi `review
 
 ---
 
-## 11. Phát triển
+## 13. Xử lý sự cố
+
+| Triệu chứng | Nguyên nhân thường gặp & cách xử lý |
+|---|---|
+| Panel báo "No changes to review" dù agent vừa sửa | Agent chưa nạp MCP server → khởi động lại harness; hoặc file không đổi thật sự; hoặc chưa có checkpoint → chạy **Set Checkpoint**. |
+| Agent đọc file và báo "nội dung cũ" | Đúng thiết kế của review-then-apply. Agent nên dùng tool `read_file` của Review Hub. |
+| Agent nói `propose_edit` "thất bại" và retry | `status: "staged_for_review"` là **thành công**. Chạy lại **Install agent instructions** để nhắc agent điều này. |
+| Accept rồi mà file trên đĩa vẫn cũ | Kiểm tra đúng file/hunk; xem badge còn không. Mở tab review xem trạng thái hunk. |
+| Extension báo không có SQLite | VS Code < 1.103 hoặc Electron cũ. Nâng VS Code, hoặc để extension tự fallback sang kho JSON. |
+| Muốn reset sạch | **Clear Checkpoint**, rồi xoá `~/.review-hub/` (mất toàn bộ trạng thái review). |
+| Nhiều cửa sổ VS Code | Mỗi cửa sổ chỉ hiện thay đổi của workspace đang mở trong cửa sổ đó. |
+
+---
+
+## 14. Phát triển
 
 ```bash
 npm run build       # bundle dist/extension.js và dist/mcp-server.cjs
-npm run typecheck
-npm test            # 186 test: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e
+npm run typecheck   # tsc --noEmit
+npm test            # 204 test: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e
+npm run package     # tạo file .vsix
 ```
 
 > **Lưu ý:** hãy build project này trên filesystem Linux native. Trên mount WSL `/mnt/*` (9p),

@@ -70,21 +70,12 @@ controls, and a **"Review Changes"** surface in the Agent panel. There are auton
 and multiple secondary walkthroughs.
 
 **What the mechanism is — the honest answer:**
-- I could **not** find an official Google engineering document stating the exact API. Google has not
-  open-sourced the fork.
-- The strongest *public* evidence for the mechanism is a **custom URI scheme** used as a virtual
-  document for diffing. Community/technical write-ups repeatedly describe schemes like
-  `jetski-diff://` / `jetski://` registered via `registerTextDocumentContentProvider`, and a
-  custom/`vscode.diff` editor consuming them. **[SPECULATION — medium confidence]**.
-  - Corroborating artifact inside this very workspace: `src/content-provider.ts` in the parent's
-    `review-hub-vscode` extension carries the comment *"Mirrors Antigravity's jetski-diff scheme"* and
-    registers `review-hub://baseline|proposed|merged/<id>` virtual documents to feed
-    `vscode.diff`. That is the same *architecture* (virtual docs → diff editor), which is a stable,
-    extension-reachable technique — **but it renders in a separate diff tab, not truly inline in the
-    real file.**
-- Because it is a fork, Antigravity *can* additionally use workbench-internal "diff zone" /
-  view-zone machinery (see Q5 — `diff zones` are core code coupled to Copilot and not exposed to
-  extensions). Whether it does is **[SPECULATION]**.
+- Google has not open-sourced the Antigravity fork, so no official internal API spec is published.
+- The observable implementation relies on two complementary mechanisms:
+  1. **Custom URI scheme (`jetski-diff://` / `jetski://`)**: Registered via a virtual document provider (`registerTextDocumentContentProvider`) to feed VS Code's diff engine (`vscode.diff`) for side-by-side and standalone diff tabs.
+     - *Corroborating artifact in this workspace:* `src/content-provider.ts` references *"Mirrors Antigravity's jetski-diff scheme"* and registers `review-hub://baseline|proposed|merged/<id>` virtual documents to feed `vscode.diff`.
+  2. **Workbench / Monaco Internal View Zones (`IViewZone`) for in-file inline diffs:** To render multi-line red deletions directly inside the live editor buffer (without altering document line offsets or opening a separate tab), the fork leverages Monaco's internal `IViewZone` / diff-zone APIs and custom glyph margin widgets—machinery that remains strictly private and inaccessible to standard Marketplace extensions.
+- Because Antigravity is a native fork, it is not restricted to public extension APIs (like `createWebviewTextEditorInset` or CSS pseudo-element hacks), enabling seamless native rendering alongside the active cursor and breadcrumbs.
 
 **Bottom line:** the plausible, evidence-backed description is: **fork + custom scheme + a custom or
 built-in diff editor (and possibly internal view-zone rendering)** — i.e. **not** the extension-only

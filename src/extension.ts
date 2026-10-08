@@ -16,6 +16,7 @@ import { DEFAULT_EXCLUDES, DEFAULT_INCLUDE_EXTENSIONS } from "./change-store";
 import { writeWindowState, clearWindowState, readWindowStates } from "./window-registry";
 import { buildAllPreviews, applyPreview } from "./harness-register";
 import { installedServerPath, nodeCommand, type McpLaunch } from "./harness-paths";
+import { reloadOpenEditors } from "./editor-sync";
 import { HUB_PROTOCOL, type FileNode } from "./types";
 
 interface Config {
@@ -473,10 +474,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // for the file we just wrote. Gating this on `cs.applied` missed the partial-accept
       // case and let the watcher re-observe and clobber the staged change.
       watcher.noteSelfWrite(cs.absPath);
+      // The decision just rewrote the file (atomic tmp+rename). Reload any editor that
+      // is showing it, so the click visibly changes the buffer instead of racing the
+      // file watcher. Dirty buffers are left alone — see reloadOpenEditors.
+      const reloaded = reloadOpenEditors(
+        vscode.workspace.textDocuments,
+        vscode.Uri.file(cs.absPath).fsPath,
+        (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri),
+      );
       await diffView.refresh(changeId);
       tab.refresh(changeId);
       refreshUi();
-      logger.info(`${kind} ${changeId} -> ${result.status} (remaining ${result.remaining})`);
+      logger.info(
+        `${kind} ${changeId} -> ${result.status} (remaining ${result.remaining}, editors reloaded=${reloaded})`,
+      );
     } catch (err) {
       logger.error(`${kind} ${changeId} failed: ${String(err)}`);
       void vscode.window.showErrorMessage(
@@ -661,6 +672,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
+    let reloaded = 0;
     for (const ws of workspaces) {
       for (const s of hub.store.listChangeSets(ws)) {
         if (kind === "accept") {
@@ -671,11 +683,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const cs = hub.store.findById(s.id);
         if (cs) {
           watcher.noteSelfWrite(cs.absPath);
+          reloaded += reloadOpenEditors(
+            vscode.workspace.textDocuments,
+            vscode.Uri.file(cs.absPath).fsPath,
+            (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri),
+          );
         }
       }
     }
     refreshUi();
-    logger.info(`${kind}All: ${total} change(s) across ${workspaces.length} workspace(s)`);
+    logger.info(
+      `${kind}All: ${total} change(s) across ${workspaces.length} workspace(s), editors reloaded=${reloaded}`,
+    );
   }
 
   logger.info("Review Hub activated");

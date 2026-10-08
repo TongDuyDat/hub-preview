@@ -6,6 +6,9 @@ scripts/**
 .test-dist/**
 fixtures/**
 node_modules/**
+.superpowers/**
+docs/**
+ANTIGRAVITY_INLINE_DIFF_RESEARCH.md
 .gitignore
 esbuild.js
 tsconfig.json

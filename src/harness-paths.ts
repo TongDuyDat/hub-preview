@@ -17,8 +17,6 @@ export interface HarnessTarget {
 }
 
 function home(): string {
-  // ~/.claude is a symlink to the Windows side under WSL; resolve to the real path
-  // so configs we write use paths valid wherever the harness actually runs.
   try {
     return fs.realpathSync(os.homedir());
   } catch {
