@@ -17,6 +17,7 @@ import * as vscode from "vscode";
 import type { ChangeStore } from "./change-store";
 import type { ChangeSet, Hunk } from "./types";
 import { splitContent, diskFrame, resolveHunkRanges } from "./hunk-diff";
+import { buildStagedView, stagedMarks, type StagedMark } from "./staged-content";
 
 /** Red/green foregrounds for the single-line ghost text, so a deletion reads as red. */
 const DELETED_COLOR = new vscode.ThemeColor("gitDecoration.deletedResourceForeground");
@@ -29,7 +30,11 @@ export class ChangeDecorator implements vscode.Disposable {
   private deletionMarker: vscode.TextEditorDecorationType;
   private disposables: vscode.Disposable[] = [];
 
-  constructor(private store: ChangeStore) {
+  constructor(
+    private store: ChangeStore,
+    /** True while this file's buffer holds the merged view (Task 2). */
+    private isStaged: (fsPath: string) => boolean = () => false,
+  ) {
     this.added = vscode.window.createTextEditorDecorationType({
       isWholeLine: true,
       backgroundColor: new vscode.ThemeColor("diffEditor.insertedLineBackground"),
@@ -123,10 +128,18 @@ export class ChangeDecorator implements vscode.Disposable {
 
   private apply(editor: vscode.TextEditor): void {
     const cs = this.changeForDocument(editor);
-    if (!cs || cs.binary || cs.hunks.length === 0) {
-      editor.setDecorations(this.added, []);
-      editor.setDecorations(this.removed, []);
-      editor.setDecorations(this.deletionMarker, []);
+    if (!cs) {
+      this.clear(editor);
+      return;
+    }
+    // A staged buffer contains BOTH sides of every hunk, so each block can be a real colour
+    // row — the thing a plain highlight structurally cannot do (see the module header).
+    if (this.isStaged(editor.document.uri.fsPath)) {
+      this.applyStaged(editor, cs);
+      return;
+    }
+    if (cs.binary || cs.hunks.length === 0) {
+      this.clear(editor);
       return;
     }
     const doc = editor.document;
@@ -202,6 +215,39 @@ export class ChangeDecorator implements vscode.Disposable {
     editor.setDecorations(this.deletionMarker, deleted);
   }
 
+  private clear(editor: vscode.TextEditor): void {
+    editor.setDecorations(this.added, []);
+    editor.setDecorations(this.removed, []);
+    editor.setDecorations(this.deletionMarker, []);
+  }
+
+  /** Staged view: `deleted` blocks red, `added` blocks green, no ghost text (spec D2). */
+  private applyStaged(editor: vscode.TextEditor, cs: ChangeSet): void {
+    const view = buildStagedView(cs);
+    if (!view) {
+      this.clear(editor);
+      return;
+    }
+    const marks = stagedMarks(view, editor.document.lineCount);
+    const hunks = new Map(cs.hunks.map((h) => [h.id, h]));
+    const decorate = (list: StagedMark[]): vscode.DecorationOptions[] =>
+      list.flatMap((mark) => {
+        const hunk = hunks.get(mark.hunkId);
+        if (!hunk) {
+          return [];
+        }
+        return [
+          {
+            range: new vscode.Range(mark.start, 0, mark.end, 0),
+            hoverMessage: stagedHover(hunkLabel(cs, hunk), hunk),
+          },
+        ];
+      });
+    editor.setDecorations(this.added, decorate(marks.added));
+    editor.setDecorations(this.removed, decorate(marks.removed));
+    editor.setDecorations(this.deletionMarker, []);
+  }
+
   dispose(): void {
     this.added.dispose();
     this.removed.dispose();
@@ -259,6 +305,23 @@ function pendingHover(label: string, oldLines: string[], newLines: string[]): vs
 function removedHover(label: string, oldLines: string[]): vscode.MarkdownString {
   return new vscode.MarkdownString(
     [label, "", "**Removed:**", "```", ...oldLines.map((l) => l.replace(/\t/g, "    ")), "```"].join("\n"),
+  );
+}
+
+/** Staged hover: the hunk label plus both sides, worded for the hunk's current decision. */
+function stagedHover(label: string, hunk: Hunk): vscode.MarkdownString {
+  const block = (title: string, lines: string[]): string[] =>
+    lines.length === 0 ? [] : ["", `**${title}:**`, "```", ...lines.map((l) => l.replace(/\t/g, "    ")), "```"];
+  if (hunk.decision === "accepted") {
+    return new vscode.MarkdownString([label, ...block("Removed from the baseline", hunk.oldLines)].join("\n"));
+  }
+  if (hunk.decision === "rejected") {
+    return new vscode.MarkdownString([label, ...block("Discarded (the baseline was kept)", hunk.newLines)].join("\n"));
+  }
+  return new vscode.MarkdownString(
+    [label, ...block("Old code (red block)", hunk.oldLines), ...block("New code (green block)", hunk.newLines)].join(
+      "\n",
+    ),
   );
 }
 

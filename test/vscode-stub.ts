@@ -83,6 +83,29 @@ const stub = {
   __contentProviders: contentProviders,
   __webviews: webviews,
   __panels: panels,
+  /** Test hook: the documents `window.visibleTextEditors` should report. */
+  __visibleEditors: [] as unknown[],
+  /** Test hook: every decoration type created, with the options it was created with. */
+  __decorationTypes: [] as { id: number; opts: Record<string, unknown> }[],
+  MarkdownString: class {
+    value: string;
+    isTrusted = false;
+    constructor(value = "") {
+      this.value = value;
+    }
+    appendMarkdown(text: string) {
+      this.value += text;
+      return this;
+    }
+    appendText(text: string) {
+      this.value += text;
+      return this;
+    }
+    appendCodeblock(code: string) {
+      this.value += "```\n" + code + "\n```";
+      return this;
+    }
+  },
   EventEmitter,
   ThemeIcon,
   TreeItem,
@@ -127,9 +150,13 @@ const stub = {
       hide: () => {},
       dispose: () => {},
     }),
-    createTextEditorDecorationType: () => ({ dispose: () => {} }),
+    createTextEditorDecorationType: (opts: Record<string, unknown> = {}) => {
+      const type = { id: stub.__decorationTypes.length, opts, dispose: () => {} };
+      stub.__decorationTypes.push(type);
+      return type;
+    },
     get visibleTextEditors() {
-      return [];
+      return stub.__visibleEditors;
     },
     showTextDocument: async (doc: unknown) => ({ document: doc, setDecorations: () => {} }),
     onDidChangeActiveTextEditor: () => ({ dispose: () => {} }),
