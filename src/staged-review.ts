@@ -150,11 +150,19 @@ export class StagedReview {
   async restage(changeId: string): Promise<boolean> {
     const cs = this.host.findById(changeId);
     const fsPath = cs?.absPath ?? this.pathOf(changeId);
-    if (!cs || !fsPath) {
+    if (!fsPath) {
       return false;
     }
     const entry = this.entries.get(fsPath);
     if (!entry || entry.changeId !== changeId) {
+      return false;
+    }
+    if (!cs) {
+      // The record is gone (agent reverted the file, checkpoint cleared it). The buffer still
+      // holds only our view — any user keystroke would already have lifted staging in
+      // handleTextChange, and adoption requires an exact match — so reloading disk destroys
+      // nothing and lets the context key go honest again.
+      this.unstage(changeId, { revert: true });
       return false;
     }
     if (pendingCount(cs) === 0) {
@@ -167,10 +175,17 @@ export class StagedReview {
       return false;
     }
     entry.applying = true;
+    let ok = false;
     try {
-      await this.host.replace(fsPath, text);
+      ok = await this.host.replace(fsPath, text);
     } finally {
       entry.applying = false;
+    }
+    if (!ok) {
+      // The buffer write failed: stop claiming we render the view and let the unstaged
+      // fallback take over (mirrors stage()'s rollback on a failed replace).
+      this.unstage(changeId);
+      return false;
     }
     this.host.onStaged();
     return true;
@@ -257,10 +272,13 @@ export class StagedReview {
       return;
     }
     const cs = this.host.findById(entry.changeId);
-    if (!cs || pendingCount(cs) === 0) {
+    if (cs && pendingCount(cs) === 0) {
+      // Nothing pending: the view is byte-identical to the file settle() wrote (the framing
+      // rule in staged-content), so letting the save through is a no-op (spec F2).
       return;
     }
-    // Saving now would write the display text (old + new interleaved) to the real file.
+    // No record (the agent reverted the file / a checkpoint cleared the change) OR hunks still
+    // pending: the buffer is a display view either way and must never reach disk (spec F1/F2).
     prevent();
     this.noticeOnce("save-blocked", entry.changeId);
   }

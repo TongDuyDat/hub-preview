@@ -68,7 +68,7 @@ interface Harness {
   fireOpen(fsPath: string): void;
 }
 
-function harness(changes: ChangeSet[], opts: { autoSave?: string; docs?: FakeDoc[] } = {}): Harness {
+function harness(changes: ChangeSet[], opts: { autoSave?: string; docs?: FakeDoc[]; failReplace?: boolean } = {}): Harness {
   const docs = opts.docs ?? [];
   const contexts: [string, boolean][] = [];
   const notices: StageNotice[] = [];
@@ -91,11 +91,11 @@ function harness(changes: ChangeSet[], opts: { autoSave?: string; docs?: FakeDoc
       return doc;
     },
     replace: async (fsPath, text) => {
+      replaced++; // counts calls, so a failed replace is still observable
       const doc = docs.find((d) => d.uri.fsPath === fsPath);
-      if (!doc) {
+      if (!doc || opts.failReplace) {
         return false;
       }
-      replaced++;
       doc.setText(text);
       for (const cb of changeCbs) cb(doc); // fires synchronously, while `applying` is set
       return true;
@@ -207,7 +207,8 @@ test("restaging rebuilds the view for the hunks that are still pending", async (
     hunks: [hunk("h1", 0, "a", "A"), hunk("h2", 2, "c", "C")],
   });
   const doc = new FakeDoc("/ws/a.txt", cs.proposed);
-  const h = harness([cs], { docs: [doc] });
+  const changes = [cs];
+  const h = harness(changes, { docs: [doc] });
   await h.staged.stage("c1");
   assert.equal(doc.getText(), "a\nA\nb\nc\nC\nd\n");
 
@@ -215,6 +216,13 @@ test("restaging rebuilds the view for the hunks that are still pending", async (
   assert.equal(await h.staged.restage("c1"), true, "h2 is still pending, so staging stays");
   assert.equal(doc.getText(), "A\nb\nc\nC\nd\n", "the accepted old block is gone from the view");
   assert.equal(h.staged.isStaged("/ws/a.txt"), true);
+
+  // The record is gone (agent reverted / checkpoint cleared): restage must release the
+  // entry and reload disk, so reviewHub.hasStagedReview goes honest again.
+  changes.length = 0;
+  assert.equal(await h.staged.restage("c1"), false, "a change whose record vanished is not restaged");
+  assert.equal(h.staged.isStaged("/ws/a.txt"), false, "the entry must not leak");
+  assert.deepEqual(h.reverts, ["/ws/a.txt"], "the buffer only ever held our view, so reloading destroys nothing");
 });
 
 test("typing into a staged buffer lifts the staging and keeps the record pending", async () => {
@@ -233,13 +241,20 @@ test("typing into a staged buffer lifts the staging and keeps the record pending
 
 test("an explicit save is refused while a hunk is still pending", async () => {
   const cs = makeChange();
-  const h = harness([cs], { docs: [new FakeDoc("/ws/a.txt", cs.proposed)] });
+  const changes = [cs];
+  const h = harness(changes, { docs: [new FakeDoc("/ws/a.txt", cs.proposed)] });
   await h.staged.stage("c1");
 
   assert.equal(h.fireWillSave("/ws/a.txt"), true, "the interleaved view must not reach disk");
   assert.deepEqual(h.notices, ["save-blocked"]);
   assert.equal(h.fireWillSave("/ws/a.txt"), true, "still refused, but the user is told once");
   assert.deepEqual(h.notices, ["save-blocked"], "the warning is not repeated");
+
+  // The record can vanish under us (removeChange when the agent reverts the file,
+  // clearChanges on a new checkpoint): the guard must still fail CLOSED (spec F1).
+  changes.length = 0;
+  assert.equal(h.fireWillSave("/ws/a.txt"), true, "no record still means no interleaved bytes on disk");
+  assert.deepEqual(h.notices, ["save-blocked"], "and the warning is still not repeated");
 });
 
 test("files that are not staged are never touched by the save guard", () => {
@@ -248,15 +263,22 @@ test("files that are not staged are never touched by the save guard", () => {
   assert.deepEqual(h.notices, []);
 });
 
-test("a buffer hot exit restored is re-adopted when it still matches the view", () => {
+test("a buffer hot exit restored is re-adopted when it still matches the view", async () => {
   const cs = makeChange();
   const doc = new FakeDoc("/ws/a.txt", buildStagedText(cs)!);
   doc.isDirty = true;
-  const h = harness([cs], { docs: [doc] });
+  const h = harness([cs], { docs: [doc], failReplace: true });
 
   assert.equal(h.staged.adoptOpenDocuments(), 1);
   assert.equal(h.staged.isStaged("/ws/a.txt"), true);
   assert.equal(h.replaced(), 0, "matching content needs no edit");
+
+  // A failed buffer write during restage must roll the entry back, mirroring stage():
+  // the presentation layer must stop claiming it renders the view.
+  assert.equal(await h.staged.restage("c1"), false, "a failed replace is not reported as still staged");
+  assert.equal(h.staged.isStaged("/ws/a.txt"), false, "the entry is rolled back");
+  assert.equal(h.replaced(), 1, "replace was called once — by the failed restage");
+  assert.equal(h.reverts.length, 0, "the buffer is kept, not reverted — nothing of the user's is destroyed");
 });
 
 test("a buffer that does not match is left exactly as it is", () => {
