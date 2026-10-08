@@ -11,12 +11,18 @@ import * as vscode from "vscode";
 import type { ChangeStore } from "./change-store";
 import type { ChangeContentProvider } from "./content-provider";
 import { splitContent, diskFrame, resolveHunkRanges } from "./hunk-diff";
+import { buildStagedView, stagedCountTitle } from "./staged-content";
+import type { Hunk } from "./types";
 
 export class HunkCodeLensProvider implements vscode.CodeLensProvider {
   private emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this.emitter.event;
 
-  constructor(private store: ChangeStore) {}
+  constructor(
+    private store: ChangeStore,
+    /** True while this file's buffer holds the merged view (Task 2). */
+    private isStaged: (fsPath: string) => boolean = () => false,
+  ) {}
 
   refresh(): void {
     this.emitter.fire();
@@ -46,6 +52,23 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
       const cs = this.changeForFile(uri.fsPath);
       if (!cs || cs.binary) {
         return [];
+      }
+      // Staged: the buffer IS the merged view, so the anchor is a merged-view line and the
+      // diff stat is the block's own size (spec D3).
+      if (this.isStaged(uri.fsPath)) {
+        const view = buildStagedView(cs);
+        if (!view) {
+          return [];
+        }
+        return view.hunks.flatMap((h, index) => {
+          const hunk = cs.hunks.find((x) => x.id === h.id);
+          return hunk
+            ? this.lensesFor(cs, hunk, index, h.anchor, document, cs.hunks.length, {
+                removed: h.removed,
+                added: h.added,
+              })
+            : [];
+        });
       }
       const ranges = new Map(
         resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, diskFrame(cs.origin)).map((r) => [r.id, r]),
@@ -80,6 +103,7 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
     anchorLine: number,
     document: vscode.TextDocument,
     total: number,
+    counts?: { removed: number; added: number },
   ): vscode.CodeLens[] {
     const line = clamp(anchorLine, 0, Math.max(0, document.lineCount - 1));
     const range = new vscode.Range(line, 0, line, 0);
@@ -155,8 +179,9 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
         tooltip: "Restore this hunk's baseline lines",
       }),
       new vscode.CodeLens(range, {
-        title: `hunk ${index + 1}/${total} · pending`,
+        title: counts ? stagedCountTitle(counts.removed, counts.added) : `hunk ${index + 1}/${total} · pending`,
         command: "",
+        tooltip: counts ? oldCodeTooltip(hunk) : undefined,
       }),
     ];
   }
@@ -250,4 +275,13 @@ export class DiffView implements vscode.Disposable {
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
+}
+
+/** Old code in a lens tooltip, so a block the eye skims is still readable. */
+function oldCodeTooltip(hunk: Hunk): string | undefined {
+  if (hunk.oldLines.length === 0) {
+    return undefined;
+  }
+  const old = hunk.oldLines.map((l) => l.replace(/\t/g, "    ")).join("\n");
+  return `Old code (removed if accepted):\n${old}`;
 }
