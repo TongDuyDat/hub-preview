@@ -28,6 +28,8 @@ Hỗ trợ **Claude Code, opencode, dsh (deepseek-harness), Cline, Roo Code** qu
 13. [Xử lý sự cố](#13-xử-lý-sự-cố)
 14. [Phát triển](#14-phát-triển)
 
+- [15. Inline staged review (kiểu Antigravity)](#15-inline-staged-review-kiểu-antigravity)
+
 ---
 
 ## 1. Vấn đề nó giải quyết
@@ -422,3 +424,28 @@ npm run package     # tạo file .vsix
 
 > **Lưu ý:** hãy build project này trên filesystem Linux native. Trên mount WSL `/mnt/*` (9p),
 > `npm install` chạy song song có thể ghi đè làm hỏng file.
+
+## 15. Inline staged review (kiểu Antigravity)
+
+Khi agent sửa một file, Review Hub **thay nội dung buffer của file đó** bằng chế độ xem gộp:
+mỗi khối thay đổi hiện **cả hai phía** — code cũ nền đỏ nằm trên code mới nền xanh — kèm
+`✓ Accept` / `✗ Reject` ngay tại khối đó (CodeLens) và hai nút
+**Accept All / Reject All** trên thanh tiêu đề editor.
+
+| Thao tác | Kết quả |
+|---|---|
+| `✓ Accept` một khối | giữ code mới; khối đỏ biến mất; file trên đĩa ghi ngay dòng vừa chấp nhận |
+| `✗ Reject` một khối | giữ code cũ; khối xanh biến mất; file trên đĩa lùi về dòng gốc |
+| `Ctrl+S` khi còn khối chưa quyết | **bị chặn** — buffer đang là chế độ xem, không phải nội dung file |
+| Quyết định xong khối cuối | buffer tự trả lại file trên đĩa (sạch, không còn gì chờ lưu) |
+| Gõ tay vào buffer đang review | extension nhả file đó (không revert gì), record vẫn chờ bạn duyệt |
+| Thoát VS Code khi còn change chưa quyết | change đó được **Accept** (lấy code mới của agent), cache dọn sạch |
+
+Điều kiện:
+
+- `files.autoSave` phải là `off` (mặc định). Nếu bạn bật auto-save, staging tự tắt và hiện
+  thông báo **một lần** — thay vào đó file được highlight và hiện code cũ bằng ghost text như
+  trước đây (bật `review-hub.autoOpenDiff` nếu muốn mở tab review tự động).
+- File binary, file agent xoá, hoặc change không có hunk → không stage, giữ nguyên cơ chế cũ
+  (highlight + tab review).
+- File không stage được vẫn dùng đường cũ: `decide()` ghi đĩa rồi reload editor.
