@@ -705,6 +705,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("review-hub.rejectHunk", (changeId: string, hunkId: string) =>
       decide(changeId, [hunkId], "reject"),
     ),
+    // Editor-title buttons (spec D3): every hunk of the file being reviewed in place.
+    vscode.commands.registerCommand("review-hub.stagedAcceptAll", () => decideActiveStaged("accept")),
+    vscode.commands.registerCommand("review-hub.stagedRejectAll", () => decideActiveStaged("reject")),
     vscode.commands.registerCommand("review-hub.acceptFile", (arg?: FileNode) => decideFile(arg, "accept")),
     vscode.commands.registerCommand("review-hub.rejectFile", (arg?: FileNode) => decideFile(arg, "reject")),
     vscode.commands.registerCommand("review-hub.undoFile", (arg?: FileNode) => decideFile(arg, "reject")),
@@ -797,6 +800,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     logger,
   );
+
+  const decideActiveStaged = async (kind: "accept" | "reject"): Promise<void> => {
+    const active = vscode.window.activeTextEditor;
+    const changeId = active ? staged.changeIdFor(active.document.uri.fsPath) : undefined;
+    if (!changeId) {
+      void vscode.window.showInformationMessage("Review Hub: no staged review in this file.");
+      return;
+    }
+    await decide(changeId, undefined, kind);
+  };
 
   async function decideFileById(changeId: string, kind: "accept" | "reject") {
     await decide(changeId, undefined, kind);

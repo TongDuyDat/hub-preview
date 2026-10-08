@@ -101,3 +101,25 @@ after(() => {
   }
   ctx.subscriptions.length = 0;
 });
+
+test("the staged Accept/Reject buttons are declared and registered", async () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")) as {
+    contributes: { commands: { command: string; icon?: string }[]; menus: Record<string, { command: string; when?: string }[]> };
+  };
+  const { STAGED_CONTEXT_KEY } = await import("../src/staged-review");
+
+  for (const id of ["review-hub.stagedAcceptAll", "review-hub.stagedRejectAll"]) {
+    const declared = pkg.contributes.commands.find((c) => c.command === id);
+    assert.ok(declared, `${id} must be declared`);
+    assert.ok(declared.icon, `${id} needs an icon to render in the editor title`);
+    assert.ok(vscode.__commands.has(id), `${id} must be registered by activate()`);
+  }
+
+  const titleMenu = pkg.contributes.menus["editor/title"] ?? [];
+  const entries = titleMenu.filter((i) => i.command.endsWith("stagedAcceptAll") || i.command.endsWith("stagedRejectAll"));
+  assert.equal(entries.length, 2, "both buttons live in editor/title");
+  for (const entry of entries) {
+    assert.ok(entry.when?.includes(STAGED_CONTEXT_KEY), `a button must be gated on ${STAGED_CONTEXT_KEY}`);
+    assert.ok(entry.when?.includes("resourceScheme == file"));
+  }
+});

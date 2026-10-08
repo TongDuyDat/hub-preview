@@ -84,6 +84,16 @@
         "icon": "$(chrome-close)"
       },
       {
+        "command": "review-hub.stagedAcceptAll",
+        "title": "Review Hub: Accept Every Change in This File",
+        "icon": "$(check)"
+      },
+      {
+        "command": "review-hub.stagedRejectAll",
+        "title": "Review Hub: Reject Every Change in This File",
+        "icon": "$(chrome-close)"
+      },
+      {
         "command": "review-hub.registerMcp",
         "title": "Review Hub: Register MCP in all harnesses"
       },
@@ -157,6 +167,18 @@
           "command": "review-hub.rejectFile",
           "when": "resourceScheme == file",
           "group": "reviewhub@4"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "review-hub.stagedAcceptAll",
+          "when": "resourceScheme == file && reviewHub.hasStagedReview",
+          "group": "navigation@1"
+        },
+        {
+          "command": "review-hub.stagedRejectAll",
+          "when": "resourceScheme == file && reviewHub.hasStagedReview",
+          "group": "navigation@2"
         }
       ]
     },
