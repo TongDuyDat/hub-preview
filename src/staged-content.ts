@@ -6,9 +6,12 @@
  * and `src/extension.ts` owns the host; this module is only the content model, so the
  * "the buffer must never be wrong" rules are unit-testable on their own.
  *
- * The staged text is the merged view (old block above new block for a pending hunk) rebuilt
- * with the BASELINE framing. Once no hunk is pending the view is byte-identical to the file
- * `settle()` wrote, which is what lets the engine hand the buffer back to disk safely.
+ * The staged text is the merged view (old block above new block for a pending hunk) framed
+ * the way `settle()` frames the resolved file (`resolvedMeta()` in src/change-store.ts): the
+ * BASELINE's framing while any hunk is pending or rejected, the PROPOSAL's framing once
+ * every hunk is accepted (and for a new file, which has no baseline framing to keep). That
+ * is what keeps the buffer byte-identical to the file `settle()` wrote, which is what lets
+ * the engine hand the buffer back to disk safely (spec F2).
  */
 import { buildMergedView, type MergedView } from "./merged-diff";
 import { joinContent, splitContent } from "./hunk-diff";
@@ -42,14 +45,22 @@ export function buildStagedView(cs: ChangeSet): MergedView | undefined {
   return buildMergedView(splitContent(cs.baseline).lines, cs.hunks);
 }
 
-/** The buffer content for a staged file: the merged view in the baseline's framing. */
+/** The buffer content for a staged file: the merged view framed as `settle()` frames the resolved file. */
 export function buildStagedText(cs: ChangeSet): string | undefined {
-  const view = buildStagedView(cs);
-  if (!view) {
+  if (cs.binary || cs.hunks.length === 0) {
     return undefined;
   }
-  const info = splitContent(cs.baseline);
-  return joinContent(view.lines, { eol: info.eol, bom: info.bom, finalNewline: info.finalNewline });
+  const base = splitContent(cs.baseline);
+  const view = buildMergedView(base.lines, cs.hunks);
+  // Mirror `resolvedMeta()` in src/change-store.ts: once every hunk is accepted (or the file
+  // is new, so there is no baseline framing to keep), the resolved file carries the
+  // PROPOSAL's framing; a partial or rejected decision keeps the BASELINE's framing so the
+  // lines the user never touched are not converted.
+  const framing =
+    !cs.baselineExists || cs.hunks.every((h) => h.decision === "accepted")
+      ? { eol: cs.eol, bom: cs.bom, finalNewline: cs.finalNewline }
+      : { eol: base.eol, bom: base.bom, finalNewline: base.finalNewline };
+  return joinContent(view.lines, framing);
 }
 
 export function pendingCount(cs: ChangeSet): number {

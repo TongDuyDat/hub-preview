@@ -77,6 +77,43 @@ test("the fully accepted staged text is byte-identical to the proposed file", ()
   // is pending, the view IS the resolved file, so unstage + revert cannot lose anything.
   const cs = makeChange({ hunks: [hunk({ decision: "accepted" })] });
   assert.equal(buildStagedText(cs), cs.proposed);
+
+  // The proposal changed the framing alongside the text (BOM + CRLF). The framing rule must
+  // mirror `resolvedMeta()` in src/change-store.ts — the PROPOSAL's framing once every hunk
+  // is accepted, the BASELINE's while anything is pending or rejected — otherwise the buffer
+  // would diverge from what `settle()` wrote (spec F2: a save is only allowed when the
+  // buffer is byte-identical to disk).
+  const framed = makeChange({
+    baseline: "a\nb\n",
+    proposed: "\uFEFFA\r\nb\r\n",
+    eol: "\r\n",
+    bom: true,
+    finalNewline: true,
+    hunks: [{ id: "f1", oldStart: 0, oldLines: ["a"], newStart: 0, newLines: ["A"], decision: "accepted" }],
+  });
+  assert.equal(buildStagedText(framed), framed.proposed, "accepted: proposed framing (BOM + CRLF)");
+
+  const pending = { ...framed, hunks: [{ ...framed.hunks[0], decision: "pending" as const }] };
+  assert.equal(
+    buildStagedText(pending),
+    "a\nA\nb\n",
+    "pending: baseline framing (LF, no BOM) even though the proposal wanted CRLF",
+  );
+
+  const rejected = { ...framed, hunks: [{ ...framed.hunks[0], decision: "rejected" as const }] };
+  assert.equal(buildStagedText(rejected), "a\nb\n", "rejected: baseline framing");
+
+  // A new file has no baseline framing to keep: the buffer carries the proposal's framing
+  // even while the hunk is still pending.
+  const created = makeChange({
+    baseline: "",
+    proposed: "\uFEFFx\r\n",
+    eol: "\r\n",
+    bom: true,
+    baselineExists: false,
+    hunks: [{ id: "n1", oldStart: 0, oldLines: [], newStart: 0, newLines: ["x"], decision: "pending" }],
+  });
+  assert.equal(buildStagedText(created), created.proposed, "new file: proposed framing while pending");
 });
 
 test("a CRLF file keeps its line endings in the staged text", () => {
@@ -86,6 +123,7 @@ test("a CRLF file keeps its line endings in the staged text", () => {
 
 test("binary and hunk-less changes have no staged view", () => {
   assert.equal(buildStagedView(makeChange({ binary: true })), undefined);
+  assert.equal(buildStagedText(makeChange({ binary: true })), undefined);
   assert.equal(buildStagedText(makeChange({ hunks: [] })), undefined);
 });
 
