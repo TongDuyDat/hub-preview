@@ -418,7 +418,7 @@ tường minh, chạy **Review Hub: Set Checkpoint** (giới hạn bởi `review
 ```bash
 npm run build       # bundle dist/extension.js và dist/mcp-server.cjs
 npm run typecheck   # tsc --noEmit
-npm test            # 204 test: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e
+npm test            # 244 tests: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e, staged model, staged engine, decorations, CodeLens, wiring, exit flush
 npm run package     # tạo file .vsix
 ```
 
