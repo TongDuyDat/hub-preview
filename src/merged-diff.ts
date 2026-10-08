@@ -22,6 +22,8 @@ export interface MergedBlock {
   start: number;
   /** Exclusive last line index in the merged document. */
   end: number;
+  /** The hunk this block renders; context blocks belong to no hunk. */
+  hunkId?: string;
 }
 
 export interface MergedHunk {
@@ -50,13 +52,13 @@ export function buildMergedView(baselineLines: string[], hunks: Hunk[]): MergedV
   const blocks: MergedBlock[] = [];
   const outHunks: MergedHunk[] = [];
 
-  const push = (kind: MergedBlockKind, from: string[]): void => {
+  const push = (kind: MergedBlockKind, from: string[], hunkId?: string): void => {
     if (from.length === 0) {
       return;
     }
     const start = lines.length;
     lines.push(...from);
-    blocks.push({ kind, start, end: lines.length });
+    blocks.push({ kind, start, end: lines.length, hunkId });
   };
 
   let cursor = 0;
@@ -66,12 +68,12 @@ export function buildMergedView(baselineLines: string[], hunks: Hunk[]): MergedV
     push("context", baselineLines.slice(cursor, h.oldStart));
     const anchor = lines.length;
     if (h.decision === "rejected") {
-      push("deleted", h.oldLines);
+      push("deleted", h.oldLines, h.id);
     } else if (h.decision === "accepted") {
-      push("added", h.newLines);
+      push("added", h.newLines, h.id);
     } else {
-      push("deleted", h.oldLines);
-      push("added", h.newLines);
+      push("deleted", h.oldLines, h.id);
+      push("added", h.newLines, h.id);
     }
     outHunks.push({
       id: h.id,

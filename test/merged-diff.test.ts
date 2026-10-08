@@ -88,3 +88,21 @@ test("no hunks means the baseline is shown unchanged", () => {
   assert.deepEqual(view.blocks.map((b) => b.kind), ["context"]);
   assert.equal(view.hunks.length, 0);
 });
+
+test("every non-context block carries the hunk it belongs to", () => {
+  const view = buildMergedView(["one", "two", "three"], [
+    {
+      id: "h1",
+      oldStart: 1,
+      oldLines: ["two"],
+      newStart: 1,
+      newLines: ["TWO"],
+      decision: "pending",
+    },
+  ]);
+  assert.deepEqual(
+    view.blocks.map((b) => b.hunkId),
+    [undefined, "h1", "h1", undefined],
+    "context blocks have no hunk; the red and green blocks of a hunk share its id",
+  );
+});
