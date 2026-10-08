@@ -12,7 +12,8 @@ import type { PanelSource } from "./review-panel-state";
 import { WorkspaceWatcher } from "./workspace-watcher";
 import { ChangeDecorator } from "./change-decorator";
 import { ChangeFileDecorationProvider } from "./file-decorations";
-import { DEFAULT_EXCLUDES, DEFAULT_INCLUDE_EXTENSIONS } from "./change-store";
+import { DEFAULT_EXCLUDES, DEFAULT_INCLUDE_EXTENSIONS, type ChangeStore } from "./change-store";
+import { flushPendingReviews } from "./exit-flush";
 import { writeWindowState, clearWindowState, readWindowStates } from "./window-registry";
 import { buildAllPreviews, applyPreview } from "./harness-register";
 import { installedServerPath, nodeCommand, type McpLaunch } from "./harness-paths";
@@ -30,6 +31,20 @@ interface Config {
   /** Automatically open the diff for a file the moment an agent changes it. */
   autoOpenDiff: boolean;
 }
+
+/**
+ * What `deactivate()` needs. Set by `activate()`, cleared by `deactivate()` so a second
+ * activation (tests) cannot flush twice. The body of `deactivate` contains no `await`, so it
+ * runs to completion synchronously — the store is still alive when the flush happens, and
+ * `context.subscriptions` teardown runs after it.
+ */
+let runtime:
+  | {
+      store: ChangeStore;
+      workspaces: () => string[];
+      log: (message: string) => void;
+    }
+  | undefined;
 
 function readConfig(): Config {
   const c = vscode.workspace.getConfiguration("review-hub");
@@ -75,6 +90,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     liveWorkspaces: () => workspaceFolders(),
     windowStates: () => readWindowStates(baseDir),
   });
+  runtime = { store: hub.store, workspaces: workspaceFolders, log: (message) => logger.info(message) };
   let hubChanged: ((workspace: string, relPath: string) => void) | undefined;
   let hubResolved: (() => void) | undefined;
 
@@ -990,6 +1006,17 @@ async function installInstructions(): Promise<void> {
   void vscode.window.showInformationMessage("Review Hub: agent instructions installed in AGENTS.md / CLAUDE.md.");
 }
 
-export function deactivate(): void {
-  // subscriptions handle teardown
+export async function deactivate(): Promise<void> {
+  const pending = runtime;
+  runtime = undefined;
+  if (!pending) {
+    return; // never activated (or already flushed)
+  }
+  try {
+    const result = flushPendingReviews(pending.store, pending.workspaces());
+    pending.log(`exit flush: ${result.accepted} change(s) accepted across ${result.workspaces} workspace(s), cache pruned`);
+  } catch (err) {
+    // Never block window teardown on a flush.
+    pending.log(`exit flush failed: ${String(err)}`);
+  }
 }

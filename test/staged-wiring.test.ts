@@ -123,3 +123,21 @@ test("the staged Accept/Reject buttons are declared and registered", async () =>
     assert.ok(entry.when?.includes("resourceScheme == file"));
   }
 });
+
+test("deactivate() runs the exit flush before the window goes away", async () => {
+  const { deactivate } = await import("../src/extension");
+
+  await deactivate();
+
+  assert.ok(
+    vscode.__log.some((line) => line.includes("exit flush")),
+    `the flush must log its summary; log was: ${vscode.__log.join(" | ")}`,
+  );
+
+  // Release the hub the first test started so the process can exit. `ctx` is the module-level
+  // context created in Task 5 — activation already pushed its subscriptions onto it.
+  for (const d of ctx.subscriptions) {
+    d.dispose();
+  }
+  await new Promise((r) => setTimeout(r, 1500));
+});
