@@ -17,7 +17,8 @@ import { writeWindowState, clearWindowState, readWindowStates } from "./window-r
 import { buildAllPreviews, applyPreview } from "./harness-register";
 import { installedServerPath, nodeCommand, type McpLaunch } from "./harness-paths";
 import { reloadOpenEditors } from "./editor-sync";
-import { HUB_PROTOCOL, type FileNode } from "./types";
+import { StagedReview, type StageNotice, type StagedHost } from "./staged-review";
+import { HUB_PROTOCOL, type ChangeSet, type FileNode } from "./types";
 
 interface Config {
   enabled: boolean;
@@ -156,9 +157,142 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const republishTimer = setInterval(republish, 5000);
   context.subscriptions.push({ dispose: () => clearInterval(republishTimer) });
 
+  // ---- Inline staged review (spec D1) --------------------------------------
+  // `staged` is assigned after `openReviewTab` exists, exactly like the forward declaration
+  // below: the CodeLens provider and the decorator only read it through the closures passed
+  // to their constructors, and nothing renders before activation has finished.
+  let staged: StagedReview;
+
+  const changeForPath = (fsPath: string): ChangeSet | undefined => {
+    for (const ws of workspaceFolders()) {
+      const root = ws.replace(/[\\/]+$/, "");
+      if (!fsPath.startsWith(root + "/") && !fsPath.startsWith(root + "\\")) {
+        continue;
+      }
+      const rel = fsPath.slice(root.length + 1).split("\\").join("/");
+      const cs = hub.store.findChangeByPath(root, rel);
+      if (cs) {
+        return cs;
+      }
+    }
+    return undefined;
+  };
+
+  const autoSaveNoticeMuted = context.globalState.get<boolean>("review-hub.autoSaveNoticeShown") === true;
+
+  const notice = (reason: StageNotice, changeId?: string): void => {
+    if (reason === "save-blocked") {
+      void vscode.window.showInformationMessage(
+        "Review Hub: this file is staged for review — Accept or Reject its blocks before saving.",
+      );
+      return;
+    }
+    if (autoSaveNoticeMuted || reason !== "auto-save") {
+      return;
+    }
+    void vscode.window
+      .showInformationMessage(
+        "Review Hub: files.autoSave is on, so inline staged review is off — changes appear as highlights instead.",
+        "Turn off auto-save",
+        "Open the review tab",
+        "Don't show again",
+      )
+      .then((choice) => {
+        if (choice === "Turn off auto-save") {
+          void vscode.workspace
+            .getConfiguration("files")
+            .update("autoSave", "off", vscode.ConfigurationTarget.Global);
+        } else if (choice === "Open the review tab" && changeId) {
+          openReviewTab(changeId);
+        } else if (choice === "Don't show again") {
+          void context.globalState.update("review-hub.autoSaveNoticeShown", true);
+        }
+      });
+  };
+
+  const stagedHost: StagedHost = {
+    documents: () => [...vscode.workspace.textDocuments],
+    open: async (fsPath) => {
+      try {
+        return await vscode.workspace.openTextDocument(vscode.Uri.file(fsPath));
+      } catch {
+        return undefined; // deleted on disk, unreadable, … — the unstaged path covers it
+      }
+    },
+    replace: async (fsPath, text) => {
+      try {
+        const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === fsPath);
+        if (!doc) {
+          return false;
+        }
+        const full = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(doc.uri, full, text);
+        return await vscode.workspace.applyEdit(edit);
+      } catch {
+        return false;
+      }
+    },
+    revert: (fsPath) =>
+      void vscode.commands.executeCommand("workbench.action.files.revert", vscode.Uri.file(fsPath)),
+    autoSave: () => vscode.workspace.getConfiguration("files").get("autoSave", "off"),
+    findById: (changeId) => hub.store.findById(changeId),
+    changeForPath,
+    onDidChangeTextDocument: (cb) => vscode.workspace.onDidChangeTextDocument((e) => cb(e.document)),
+    onWillSaveTextDocument: (cb) =>
+      vscode.workspace.onWillSaveTextDocument((e) => {
+        const doc = e.document;
+        cb(doc.uri.fsPath, () => {
+          // Stable VS Code offers no way to cancel a save (`TextDocumentWillSaveEvent`
+          // has only `document`, `reason`, `waitUntil`), so we neutralize it instead of
+          // refusing it: hand the editor pre-save edits that restore the exact bytes on
+          // disk, so whatever follows is byte-identical to disk and the staged view can
+          // never be what lands there (spec F1/F2 outcome).
+          const full = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+          e.waitUntil(
+            (async () => {
+              try {
+                return [vscode.TextEdit.replace(full, fs.readFileSync(doc.uri.fsPath, "utf8"))];
+              } catch {
+                return []; // file gone/unreadable: no cancel exists, do not guess
+              }
+            })(),
+          );
+        });
+      }),
+    onDidOpenTextDocument: (cb) =>
+      vscode.workspace.onDidOpenTextDocument((doc) => {
+        if (doc.uri.scheme === "file") {
+          cb(doc.uri.fsPath);
+        }
+      }),
+    setContext: (key, value) => void vscode.commands.executeCommand("setContext", key, value),
+    notice,
+    onStaged: () => {
+      codeLens.refresh();
+      refreshUi();
+    },
+  };
+
+  /**
+   * The one staging trigger: watcher (D1a), MCP propose (D1b) and the poll all land here.
+   * If this exact change is already staged we re-render instead of staging again — that is
+   * how a decision made in another window (or by the MCP server directly) reaches the
+   * buffer: `stage()` short-circuits on an unchanged id, `restage()` rebuilds the view.
+   */
+  const stagePath = (ws: string, relPath: string): void => {
+    const cs = hub.store.findChangeByPath(ws, relPath);
+    if (!cs) {
+      return;
+    }
+    const run =
+      staged.changeIdFor(cs.absPath) === cs.id ? staged.restage(cs.id) : staged.stage(cs.id);
+    run.catch((err) => logger.warn(`stage ${cs.path} failed: ${String(err)}`));
+  };
+
   const provider = new ChangeContentProvider(hub.store);
-  const codeLens = new HunkCodeLensProvider(hub.store);
-  const decorator = new ChangeDecorator(hub.store);
+  const codeLens = new HunkCodeLensProvider(hub.store, (fsPath) => staged.isStaged(fsPath));
+  const decorator = new ChangeDecorator(hub.store, (fsPath) => staged.isStaged(fsPath));
   // A badge on every changed file in the Explorer, so the user sees what needs review
   // without opening a diff.
   const fileDecorations = new ChangeFileDecorationProvider(hub.store, workspaceFolders);
@@ -205,11 +339,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
   openReviewTab = (changeId) => tab.open(changeId);
+  staged = new StagedReview(stagedHost);
 
   const diffView = new DiffView(hub.store, provider, codeLens, () => {
     refreshUi();
   });
   decorator.start();
+  staged.start();
 
   /**
    * One place to refresh everything that reflects change state: the sidebar panel, the
@@ -263,6 +399,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (autoOpened.has(cs.id)) {
         continue;
       }
+      // A staged file is already being reviewed in place — the review tab would be the
+      // second surface for the same change (spec D8).
+      if (staged.isStaged(cs.absPath)) {
+        continue;
+      }
       autoOpened.add(cs.id);
       try {
         // Open the review tab beside the editor, without stealing focus.
@@ -281,6 +422,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (ws, relPath) => {
       refreshUi();
       scheduleAutoOpen(ws, relPath);
+      stagePath(ws, relPath);
     },
     DEFAULT_INCLUDE_EXTENSIONS,
   );
@@ -293,6 +435,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     refreshUi();
     if (relPath) {
       scheduleAutoOpen(workspace, relPath);
+      stagePath(workspace, relPath);
     }
   };
   hubResolved = () => {
@@ -398,6 +541,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // git HEAD (free) or is captured lazily the moment the agent proposes a change, so
   // opening a project costs nothing and a session with no changes shows nothing.
   refreshUi();
+  // Hot exit can restore buffers we staged last session: adopt the ones that still hold the
+  // view, leave every other buffer alone (spec D6b/F3).
+  staged.adoptOpenDocuments();
 
   /**
    * Turn a command argument into a change id. Accepts an id, a plain `{ workspace, path }`
@@ -482,6 +628,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.Uri.file(cs.absPath).fsPath,
         (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri),
       );
+      // The buffer is only a view: re-render it from the decisions just recorded. When the
+      // last hunk is decided this hands the buffer back to disk (spec F1/F2).
+      await staged.restage(changeId);
       await diffView.refresh(changeId);
       tab.refresh(changeId);
       refreshUi();
@@ -512,6 +661,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.languages.registerCodeLensProvider({ scheme: "review-hub" }, codeLens),
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, codeLens),
     decorator,
+    staged,
 
     vscode.commands.registerCommand("review-hub.refresh", () => {
       refreshUi();
@@ -683,6 +833,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const cs = hub.store.findById(s.id);
         if (cs) {
           watcher.noteSelfWrite(cs.absPath);
+          await staged.restage(cs.id);
           reloaded += reloadOpenEditors(
             vscode.workspace.textDocuments,
             vscode.Uri.file(cs.absPath).fsPath,

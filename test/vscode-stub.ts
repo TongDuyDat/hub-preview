@@ -85,8 +85,29 @@ const stub = {
   __panels: panels,
   /** Test hook: the documents `window.visibleTextEditors` should report. */
   __visibleEditors: [] as unknown[],
+  /** Test hook: documents reported by `workspace.textDocuments`. */
+  __textDocuments: [] as unknown[],
+  /** Test hook: every workspace listener registered, tagged with its event name. */
+  __listeners: [] as { event: string; cb: (...args: never[]) => unknown }[],
   /** Test hook: every decoration type created, with the options it was created with. */
   __decorationTypes: [] as { id: number; opts: Record<string, unknown> }[],
+  WorkspaceEdit: class {
+    readonly edits: { uri: unknown; text: string }[] = [];
+    replace(uri: unknown, _range: unknown, text: string): void {
+      this.edits.push({ uri, text });
+    }
+    insert(uri: unknown, _pos: unknown, text: string): void {
+      this.edits.push({ uri, text });
+    }
+    delete(_uri: unknown, _range: unknown): void {}
+  },
+  ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
+  TextEdit: class TextEdit {
+    constructor(readonly range: unknown, readonly newText: string) {}
+    static replace(range: unknown, newText: string) {
+      return new TextEdit(range, newText);
+    }
+  },
   MarkdownString: class {
     value: string;
     isTrusted = false;
@@ -239,7 +260,11 @@ const stub = {
       const config = envJson("VSCODE_STUB_CONFIG");
       return {
         get: <T>(key: string, fallback: T): T => (key in config ? (config[key] as T) : fallback),
+        update: async (): Promise<void> => {},
       };
+    },
+    get textDocuments() {
+      return stub.__textDocuments;
     },
     get workspaceFolders() {
       const folders = envJson("VSCODE_STUB_WORKSPACE");
@@ -260,11 +285,24 @@ const stub = {
       onDidDelete: () => ({ dispose: () => {} }),
       dispose: () => {},
     }),
-    onDidChangeTextDocument: () => ({ dispose: () => {} }),
+    onDidChangeTextDocument: (cb: (e: never) => unknown) => {
+      stub.__listeners.push({ event: "change", cb });
+      return { dispose: () => {} };
+    },
+    onWillSaveTextDocument: (cb: (e: never) => unknown) => {
+      stub.__listeners.push({ event: "willSave", cb });
+      return { dispose: () => {} };
+    },
+    onDidOpenTextDocument: (cb: (e: never) => unknown) => {
+      stub.__listeners.push({ event: "open", cb });
+      return { dispose: () => {} };
+    },
     openTextDocument: async (uri: unknown) => ({
       uri,
+      isDirty: false,
       lineCount: 1,
       lineAt: () => ({ range: {} }),
+      positionAt: (offset: number) => ({ line: 0, character: offset }),
       getText: () => "",
     }),
     applyEdit: async () => true,
