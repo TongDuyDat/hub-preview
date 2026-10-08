@@ -199,7 +199,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const notice = (reason: StageNotice, changeId?: string): void => {
     if (reason === "save-blocked") {
       void vscode.window.showInformationMessage(
-        "Review Hub: this file is staged for review — Accept or Reject its blocks before saving.",
+        "Review Hub: the staged view was cleared — the buffer now shows the file's on-disk content. Pending changes stay in Review Hub; reopen the file to continue reviewing.",
       );
       return;
     }
@@ -258,23 +258,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onWillSaveTextDocument: (cb) =>
       vscode.workspace.onWillSaveTextDocument((e) => {
         const doc = e.document;
-        cb(doc.uri.fsPath, () => {
-          // Stable VS Code offers no way to cancel a save (`TextDocumentWillSaveEvent`
-          // has only `document`, `reason`, `waitUntil`), so we neutralize it instead of
-          // refusing it: hand the editor pre-save edits that restore the exact bytes on
-          // disk, so whatever follows is byte-identical to disk and the staged view can
-          // never be what lands there (spec F1/F2 outcome).
-          const full = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
-          e.waitUntil(
-            (async () => {
-              try {
-                return [vscode.TextEdit.replace(full, fs.readFileSync(doc.uri.fsPath, "utf8"))];
-              } catch {
-                return []; // file gone/unreadable: no cancel exists, do not guess
-              }
-            })(),
-          );
-        });
+        cb(
+          doc.uri.fsPath,
+          () => {
+            // Stable VS Code offers no way to cancel a save (`TextDocumentWillSaveEvent`
+            // has only `document`, `reason`, `waitUntil`), so we neutralize it instead of
+            // refusing it: hand the editor pre-save edits that restore the exact bytes on
+            // disk, so whatever follows is byte-identical to disk and the staged view can
+            // never be what lands there (spec F1/F2 outcome).
+            const full = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+            e.waitUntil(
+              (async () => {
+                try {
+                  return [vscode.TextEdit.replace(full, fs.readFileSync(doc.uri.fsPath, "utf8"))];
+                } catch {
+                  return []; // file gone/unreadable: no cancel exists, do not guess
+                }
+              })(),
+            );
+          },
+          doc.getText(), // the buffer's text: lets the engine see an undo-restored view (C21)
+        );
       }),
     onDidOpenTextDocument: (cb) =>
       vscode.workspace.onDidOpenTextDocument((doc) => {
@@ -692,6 +696,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, codeLens),
     decorator,
     staged,
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+      const id = staged.changeIdFor(doc.uri.fsPath);
+      if (id) {
+        // The document is already gone: release the staging entry WITHOUT reverting
+        // (spec F3 — nothing to preserve, nothing to write). Reopening re-stages from disk.
+        staged.unstage(id);
+      }
+    }),
 
     vscode.commands.registerCommand("review-hub.refresh", () => {
       refreshUi();

@@ -64,7 +64,7 @@ interface Harness {
   replaced(): number;
   stagedEvents(): number;
   fireTextChange(doc: FakeDoc): void;
-  fireWillSave(fsPath: string): boolean; // true when the save was prevented
+  fireWillSave(fsPath: string, text?: string): boolean; // true when the save was prevented
   fireOpen(fsPath: string): void;
 }
 
@@ -76,7 +76,7 @@ function harness(changes: ChangeSet[], opts: { autoSave?: string; docs?: FakeDoc
   let replaced = 0;
   let stagedEvents = 0;
   const changeCbs: ((d: StagedDocument) => void)[] = [];
-  const saveCbs: ((p: string, prevent: () => void) => void)[] = [];
+  const saveCbs: ((p: string, prevent: () => void, text?: string) => void)[] = [];
   const openCbs: ((p: string) => void)[] = [];
 
   const host: StagedHost = {
@@ -134,9 +134,9 @@ function harness(changes: ChangeSet[], opts: { autoSave?: string; docs?: FakeDoc
     replaced: () => replaced,
     stagedEvents: () => stagedEvents,
     fireTextChange: (doc) => changeCbs.forEach((cb) => cb(doc)),
-    fireWillSave: (fsPath) => {
+    fireWillSave: (fsPath, text) => {
       let prevented = false;
-      saveCbs.forEach((cb) => cb(fsPath, () => (prevented = true)));
+      saveCbs.forEach((cb) => cb(fsPath, () => (prevented = true), text));
       return prevented;
     },
     fireOpen: (fsPath) => openCbs.forEach((cb) => cb(fsPath)),
@@ -242,7 +242,8 @@ test("typing into a staged buffer lifts the staging and keeps the record pending
 test("an explicit save is refused while a hunk is still pending", async () => {
   const cs = makeChange();
   const changes = [cs];
-  const h = harness(changes, { docs: [new FakeDoc("/ws/a.txt", cs.proposed)] });
+  const doc = new FakeDoc("/ws/a.txt", cs.proposed);
+  const h = harness(changes, { docs: [doc] });
   await h.staged.stage("c1");
 
   assert.equal(h.fireWillSave("/ws/a.txt"), true, "the interleaved view must not reach disk");
@@ -255,6 +256,23 @@ test("an explicit save is refused while a hunk is still pending", async () => {
   changes.length = 0;
   assert.equal(h.fireWillSave("/ws/a.txt"), true, "no record still means no interleaved bytes on disk");
   assert.deepEqual(h.notices, ["save-blocked"], "and the warning is still not repeated");
+
+  // C21/FINAL-1: a neutralized save restores the disk bytes as a PRE-SAVE EDIT, so the
+  // engine sees a text change and lifts staging — the entry is gone by then. Ctrl+Z puts
+  // the view back into the buffer and the next plain save must STILL be refused: the
+  // buffer text is exactly the view the engine wrote, entry or not (spec F1).
+  const view = buildStagedText(cs)!;
+  doc.setText(cs.proposed); // the pre-save edit restored the bytes on disk
+  h.fireTextChange(doc); // …delivered as a text change → staging lifts
+  assert.equal(h.staged.isStaged("/ws/a.txt"), false, "the neutralized save lifted staging");
+  doc.setText(view); // Ctrl+Z: the undo restores the view
+  assert.equal(h.fireWillSave("/ws/a.txt", view), true, "an undo-restored view must never reach disk (F1)");
+  assert.equal(
+    h.fireWillSave("/ws/a.txt", "hand edit\n"),
+    false,
+    "the user's own text is not ours to protect",
+  );
+  assert.deepEqual(h.notices, ["save-blocked"], "and the warning is still shown only once");
 });
 
 test("files that are not staged are never touched by the save guard", () => {
@@ -272,6 +290,22 @@ test("a buffer hot exit restored is re-adopted when it still matches the view", 
   assert.equal(h.staged.adoptOpenDocuments(), 1);
   assert.equal(h.staged.isStaged("/ws/a.txt"), true);
   assert.equal(h.replaced(), 0, "matching content needs no edit");
+
+  // C22/FINAL-1: adoption established this buffer as the view, so even with the entry
+  // released the guard must refuse a save whose text IS that view. Chain: a neutralized
+  // save restores disk bytes as a pre-save edit → staging lifts → Ctrl+Z puts the view
+  // back → plain save → refused (spec F1).
+  const view = doc.getText();
+  doc.setText(cs.proposed); // the pre-save edit restored the bytes on disk
+  h.fireTextChange(doc); // …delivered as a text change → staging lifts
+  assert.equal(h.staged.isStaged("/ws/a.txt"), false, "the neutralized save lifted staging");
+  doc.setText(view); // Ctrl+Z: the undo restores the view
+  assert.equal(h.fireWillSave("/ws/a.txt", view), true, "an undo-restored view must never reach disk (F1)");
+  assert.equal(
+    h.staged.adoptOpenDocuments(),
+    1,
+    "the view is back, so adoption can pick it up again for the rollback scenario below",
+  );
 
   // A failed buffer write during restage must roll the entry back, mirroring stage():
   // the presentation layer must stop claiming it renders the view.

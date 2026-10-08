@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { ChangeStore } from "../src/change-store";
 import { buildStagedText } from "../src/staged-content";
+import { STAGED_CONTEXT_KEY } from "../src/staged-review";
 
 // The runner aliases `vscode` to test/vscode-stub.ts. This file activates the extension in
 // its own process, so it gets a private hub and a private ~/.review-hub.
@@ -87,6 +88,44 @@ test("activation wires the staging engine into the workspace events", async () =
     "the pre-save edit restores the exact bytes on disk, so the save after it is a no-op (F1)",
   );
   assert.notEqual(edits[0].newText, viewText, "…and that is the disk text, not the merged view");
+
+  // FINAL-2: closing a staged document must release its entry — Don't-Save-close then
+  // reopen would otherwise leave isStaged true over a disk-content buffer and Tasks 3/4
+  // would anchor the merged view's coordinates onto the wrong lines (F3: the document is
+  // already gone — nothing to preserve, nothing to write).
+  const close = vscode.__listeners.find((l) => l.event === "close");
+  assert.ok(close, "the extension must subscribe to onDidCloseTextDocument");
+  close.cb({ uri: { scheme: "file", fsPath: aPath } });
+  assert.deepEqual(
+    vscode.__executed.filter((e) => e.command === "setContext").at(-1)?.args,
+    [STAGED_CONTEXT_KEY, false],
+    "closing the staged document must release the entry and take the context key down",
+  );
+
+  // A stale entry would keep blocking plain on-disk saves; with the entry released that
+  // save belongs to the user again.
+  let scheduledAfterClose: unknown;
+  willSave?.cb({
+    document: { ...doc, getText: () => diskText },
+    waitUntil: (p: unknown) => {
+      scheduledAfterClose = p;
+    },
+  });
+  assert.equal(
+    scheduledAfterClose,
+    undefined,
+    "a closed file's plain save must not be blocked by a stale entry",
+  );
+
+  // Reopening re-stages the pending change through the engine's own open handler, so the
+  // later tests in this file still see a staged, revertable buffer.
+  vscode.__listeners.find((l) => l.event === "open")?.cb({ uri: { scheme: "file", fsPath: aPath } });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(
+    vscode.__executed.filter((e) => e.command === "setContext").at(-1)?.args,
+    [STAGED_CONTEXT_KEY, true],
+    "reopening the file must re-stage the pending change",
+  );
 });
 
 // File-level teardown: activation's intervals and hub live in `ctx.subscriptions`, so

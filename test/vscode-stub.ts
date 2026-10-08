@@ -302,6 +302,10 @@ const stub = {
       stub.__listeners.push({ event: "open", cb });
       return { dispose: () => {} };
     },
+    onDidCloseTextDocument: (cb: (e: never) => unknown) => {
+      stub.__listeners.push({ event: "close", cb });
+      return { dispose: () => {} };
+    },
     openTextDocument: async (uri: unknown) => ({
       uri,
       isDirty: false,

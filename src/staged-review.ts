@@ -6,7 +6,9 @@
  * the baseline. Decisions never run through this module: `ChangeStore.accept/reject` still
  * writes the correctly resolved bytes, and this engine only re-stages the view afterwards
  * (spec F1). When the last hunk is decided the view is byte-identical to the file, so
- * `restage()` un-stages and reverts the editor (spec F2).
+ * `restage()` un-stages and reverts the editor (spec F2). The save guard refuses any save
+ * whose buffer text equals the view the engine established — entry or not — so an undo of
+ * a neutralized save can never put the view on disk (spec F1).
  *
  * Deliberately free of `vscode`: every host capability arrives through `StagedHost`, so the
  * state machine is unit-testable and `src/extension.ts` owns all VS Code calls.
@@ -40,7 +42,7 @@ export interface StagedHost {
   findById(changeId: string): ChangeSet | undefined;
   changeForPath(fsPath: string): ChangeSet | undefined;
   onDidChangeTextDocument(cb: (doc: StagedDocument) => void): { dispose(): void };
-  onWillSaveTextDocument(cb: (fsPath: string, prevent: () => void) => void): { dispose(): void };
+  onWillSaveTextDocument(cb: (fsPath: string, prevent: () => void, text?: string) => void): { dispose(): void };
   onDidOpenTextDocument(cb: (fsPath: string) => void): { dispose(): void };
   /** Set the `when`-clause context key for the editor title buttons. */
   setContext(key: string, value: boolean): void;
@@ -58,6 +60,15 @@ interface Entry {
 
 export class StagedReview {
   private readonly entries = new Map<string, Entry>();
+  /**
+   * The text this engine has established as each buffer's view (set in `stage()`/`restage()`
+   * after a successful `replace()`, in `stage()`'s equal-content branch, and on adoption —
+   * every path that establishes the view — and never cleared). An exact-text match can only
+   * fire on a genuine view restore, i.e. undoing the pre-save restore of a neutralized save,
+   * and the consequence of an over-broad entry is only ever a neutralizing save (byte-
+   * identical disk restore) — the fail-safe direction (spec F1).
+   */
+  private readonly viewTexts = new Map<string, string>();
   /** Files with a `stage()` in flight — the re-entrancy guard for our own `open()`. */
   private readonly busy = new Set<string>();
   private readonly noticed = new Set<StageNotice>();
@@ -69,7 +80,7 @@ export class StagedReview {
   start(): void {
     this.subs.push(
       this.host.onDidChangeTextDocument((doc) => this.handleTextChange(doc)),
-      this.host.onWillSaveTextDocument((fsPath, prevent) => this.handleWillSave(fsPath, prevent)),
+      this.host.onWillSaveTextDocument((fsPath, prevent, text) => this.handleWillSave(fsPath, prevent, text)),
       this.host.onDidOpenTextDocument((fsPath) => {
         // A failed stage is never fatal: the file simply keeps the unstaged path.
         this.stageOnOpen(fsPath).catch(() => undefined);
@@ -139,9 +150,14 @@ export class StagedReview {
             this.entries.delete(cs.absPath);
             return false;
           }
+          this.viewTexts.set(cs.absPath, text);
         } finally {
           entry.applying = false;
         }
+      } else {
+        // The buffer already holds the view: record it exactly as a `replace()` would, so
+        // the undo-after-neutralized-save guard covers this path too (C22).
+        this.viewTexts.set(cs.absPath, text);
       }
     } finally {
       this.busy.delete(cs.absPath);
@@ -195,6 +211,7 @@ export class StagedReview {
       this.unstage(changeId);
       return false;
     }
+    this.viewTexts.set(fsPath, text);
     this.host.onStaged();
     return true;
   }
@@ -229,6 +246,9 @@ export class StagedReview {
       const text = buildStagedText(cs);
       if (text !== undefined && doc.getText() === text) {
         this.remember(doc.uri.fsPath, cs.id);
+        // The exact match proves this buffer holds the view — established by us in an
+        // earlier session — so it enters the save guard's view-text check like the rest (C22).
+        this.viewTexts.set(doc.uri.fsPath, text);
         adopted++;
       }
     }
@@ -274,10 +294,20 @@ export class StagedReview {
     this.unstage(entry.changeId);
   }
 
-  private handleWillSave(fsPath: string, prevent: () => void): void {
+  private handleWillSave(fsPath: string, prevent: () => void, text?: string): void {
     const entry = this.entries.get(fsPath);
-    if (!entry) {
+    // A buffer whose text is exactly the view we established holds the view — which is
+    // precisely what an undo of a neutralized save restores, entry or not (C21/FINAL-1).
+    if (text !== undefined && text === this.viewTexts.get(fsPath)) {
+      // Refuse this save: writing view text would put the interleaved old+new blocks on
+      // disk while hunks are pending (spec F1) — the neutralized save lifts staging, so
+      // `entry` may well be gone already.
+      prevent();
+      this.noticeOnce("save-blocked", entry?.changeId);
       return;
+    }
+    if (!entry) {
+      return; // not staged and not our view: nothing to protect (nothing of ours can leak)
     }
     const cs = this.host.findById(entry.changeId);
     if (cs && pendingCount(cs) === 0) {
