@@ -275,12 +275,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   /**
-   * The one staging trigger: watcher (D1a), MCP propose (D1b) and the poll all land here.
-   * If this exact change is already staged we re-render instead of staging again — that is
-   * how a decision made in another window (or by the MCP server directly) reaches the
-   * buffer: `stage()` short-circuits on an unchanged id, `restage()` rebuilds the view.
+   * The staging trigger for a file that just changed: the watcher callback and
+   * `hubChanged` (the MCP propose path) land here. If this exact change is already staged
+   * we re-render instead of staging again — `stage()` short-circuits on an unchanged id,
+   * `restage()` rebuilds the view.
+   *
+   * A decision made in another window is not re-staged here: the 2 s poll picks such a
+   * change up only to refresh the UI, never to rebuild the buffer (accepted C3 limitation).
    */
+  // Stage the merged review view for a file that just changed — but only for projects this
+  // window actually has open: the hub is shared, so hubChanged can report any workspace.
   const stagePath = (ws: string, relPath: string): void => {
+    if (!workspaceFolders().includes(ws)) {
+      return;
+    }
     const cs = hub.store.findChangeByPath(ws, relPath);
     if (!cs) {
       return;
