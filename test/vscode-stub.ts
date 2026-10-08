@@ -91,6 +91,8 @@ const stub = {
   __listeners: [] as { event: string; cb: (...args: never[]) => unknown }[],
   /** Test hook: every decoration type created, with the options it was created with. */
   __decorationTypes: [] as { id: number; opts: Record<string, unknown> }[],
+  /** Test hook: every `commands.executeCommand` invocation, in order. */
+  __executed: [] as { command: string; args: unknown[] }[],
   WorkspaceEdit: class {
     readonly edits: { uri: unknown; text: string }[] = [];
     replace(uri: unknown, _range: unknown, text: string): void {
@@ -253,7 +255,10 @@ const stub = {
         },
       };
     },
-    executeCommand: async () => undefined,
+    executeCommand: async (command: string, ...args: unknown[]) => {
+      stub.__executed.push({ command, args });
+      return undefined;
+    },
   },
   workspace: {
     getConfiguration: () => {

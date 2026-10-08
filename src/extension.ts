@@ -33,16 +33,17 @@ interface Config {
 }
 
 /**
- * What `deactivate()` needs. Set by `activate()`, cleared by `deactivate()` so a second
- * activation (tests) cannot flush twice. The body of `deactivate` contains no `await`, so it
- * runs to completion synchronously — the store is still alive when the flush happens, and
- * `context.subscriptions` teardown runs after it.
+ * What `deactivate()` needs. Set by `activate()` once the staged engine exists, cleared by
+ * `deactivate()` so a second activation (tests) cannot flush twice. `deactivate()` is async
+ * (VS Code awaits it) and awaits every staged-buffer revert, so it still runs to completion
+ * before `context.subscriptions` teardown — the store is alive when the flush happens.
  */
 let runtime:
   | {
       store: ChangeStore;
       workspaces: () => string[];
       log: (message: string) => void;
+      staged: StagedReview;
     }
   | undefined;
 
@@ -90,7 +91,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     liveWorkspaces: () => workspaceFolders(),
     windowStates: () => readWindowStates(baseDir),
   });
-  runtime = { store: hub.store, workspaces: workspaceFolders, log: (message) => logger.info(message) };
   let hubChanged: ((workspace: string, relPath: string) => void) | undefined;
   let hubResolved: (() => void) | undefined;
 
@@ -370,6 +370,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   decorator.start();
   staged.start();
+  runtime = {
+    store: hub.store,
+    workspaces: workspaceFolders,
+    log: (message) => logger.info(message),
+    staged,
+  };
 
   /**
    * One place to refresh everything that reflects change state: the sidebar panel, the
@@ -1014,7 +1020,23 @@ export async function deactivate(): Promise<void> {
   }
   try {
     const result = flushPendingReviews(pending.store, pending.workspaces());
-    pending.log(`exit flush: ${result.accepted} change(s) accepted across ${result.workspaces} workspace(s), cache pruned`);
+    // D6: the flush just wrote the resolved bytes — hand every staged buffer back to what is
+    // now on disk, so no merged view survives into the next session (spec D6/F1/F3): a merged
+    // view left behind has no record left to adopt it, so a routine save would write display
+    // text (the F1 corruption path). Scoped to engine entries only; each revert is awaited —
+    // a fire-and-forget one may never execute once the host tears down.
+    let reverted = 0;
+    for (const fsPath of pending.staged.stagedPaths()) {
+      await vscode.commands.executeCommand("workbench.action.files.revert", vscode.Uri.file(fsPath));
+      reverted++;
+      const changeId = pending.staged.changeIdFor(fsPath);
+      if (changeId) {
+        pending.staged.unstage(changeId); // context key honest while the window finishes closing
+      }
+    }
+    pending.log(
+      `exit flush: ${result.accepted} change(s) accepted across ${result.workspaces} workspace(s), cache pruned, ${reverted} staged buffer(s) reverted`,
+    );
   } catch (err) {
     // Never block window teardown on a flush.
     pending.log(`exit flush failed: ${String(err)}`);

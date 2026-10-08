@@ -20,6 +20,7 @@ process.env.VSCODE_STUB_CONFIG = JSON.stringify({ enabled: true, watchDirectWrit
 const vscode = require("./vscode-stub") as {
   __listeners: { event: string }[];
   __commands: Map<string, unknown[]>;
+  __executed: { command: string; args: unknown[] }[];
   __log: string[];
   Uri: { file(p: string): unknown };
 };
@@ -132,6 +133,22 @@ test("deactivate() runs the exit flush before the window goes away", async () =>
   assert.ok(
     vscode.__log.some((line) => line.includes("exit flush")),
     `the flush must log its summary; log was: ${vscode.__log.join(" | ")}`,
+  );
+
+  // D6: the flush writes the resolved bytes, then every staged buffer must be handed back to
+  // what is now on disk — a merged view that survives into the next session has no record left
+  // to adopt it, so a routine save would write display text (F1). Engine entries only (F3).
+  const reverted = vscode.__executed
+    .filter((e) => e.command === "workbench.action.files.revert")
+    .map((e) => (e.args[0] as { fsPath: string }).fsPath);
+  const stagedPath = path.join(ws, "a.txt");
+  assert.ok(
+    reverted.includes(stagedPath),
+    `deactivate() must revert the staged buffer before it resolves; reverted: [${reverted.join(", ")}]`,
+  );
+  assert.ok(
+    reverted.every((p) => p === stagedPath),
+    `only engine-staged buffers may be reverted (F3); reverted: [${reverted.join(", ")}]`,
   );
 
   // Release the hub the first test started so the process can exit. `ctx` is the module-level

@@ -89,6 +89,14 @@ export class StagedReview {
     return this.entries.size;
   }
 
+  /**
+   * Absolute paths whose buffer currently holds the merged view. The exit flush (spec D6)
+   * reverts exactly these and nothing else — never a document the engine does not own (spec F3).
+   */
+  stagedPaths(): string[] {
+    return [...this.entries.keys()];
+  }
+
   /** Stage one change's file (spec D1). Returns true when the buffer shows the merged view. */
   async stage(changeId: string): Promise<boolean> {
     const cs = this.host.findById(changeId);
