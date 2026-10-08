@@ -4,6 +4,7 @@ mcp/**
 test/**
 scripts/**
 .test-dist/**
+.repro/**
 fixtures/**
 node_modules/**
 .superpowers/**

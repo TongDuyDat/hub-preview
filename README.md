@@ -28,7 +28,7 @@ Hỗ trợ **Claude Code, opencode, dsh (deepseek-harness), Cline, Roo Code** qu
 13. [Xử lý sự cố](#13-xử-lý-sự-cố)
 14. [Phát triển](#14-phát-triển)
 
-- [15. Inline staged review (kiểu Antigravity)](#15-inline-staged-review-kiểu-antigravity)
+15. [Inline staged review (kiểu Antigravity)](#15-inline-staged-review-kiểu-antigravity)
 
 ---
 
@@ -142,7 +142,7 @@ Khi cần chế độ 2 cột cổ điển, dùng **Review Hub: Open Side-by-Sid
 **Cách A — cài từ file `.vsix` (dùng để thử):**
 
 ```bash
-code --install-extension review-hub-vscode-0.1.1.vsix
+code --install-extension review-hub-vscode-0.2.0.vsix
 ```
 
 Hoặc trong VS Code: mở **Extensions** (`Ctrl+Shift+X`) → menu `⋯` → **Install from VSIX…**
