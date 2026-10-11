@@ -417,7 +417,7 @@ tường minh, chạy **Review Hub: Set Checkpoint** (giới hạn bởi `review
 ```bash
 npm run build       # bundle dist/extension.js và dist/mcp-server.cjs
 npm run typecheck   # tsc --noEmit
-npm test            # 244 tests: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e, staged model, staged engine, decorations, CodeLens, wiring, exit flush
+npm test            # 246 tests: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e, staged model, staged engine, decorations, CodeLens, wiring, exit flush, localized hunk edit
 npm run package     # tạo file .vsix
 ```
 
@@ -426,27 +426,17 @@ npm run package     # tạo file .vsix
 
 ---
 
-## 15. Inline staged review (kiểu Antigravity)
+## 15. Native Diff Review & Lưu trực tiếp trên đĩa
 
-Khi agent sửa một file, Review Hub **thay nội dung buffer của file đó** bằng chế độ xem gộp:
-mỗi khối thay đổi hiện **cả hai phía** — code cũ nền đỏ nằm trên code mới nền xanh — kèm
-`✓ Accept` / `✗ Reject` ngay tại khối đó (CodeLens) và hai nút
-**Accept All / Reject All** trên thanh tiêu đề editor.
+Khi agent sửa file, Review Hub **ghi ngay lập tức nội dung sửa đổi xuống file thật trên đĩa** và lưu lại bản gốc trước đó làm baseline:
+- File thật luôn ở trạng thái sạch, có cú pháp hoàn chỉnh và hoạt động được ngay.
+- Không can thiệp sửa buffer text giả lập, hoàn toàn tương thích và không bao giờ xung đột với `files.autoSave`.
+- Bắn thông báo (Toast notification) trong VS Code kèm nút **Review Diff**, **Accept All**, **Reject All**.
 
 | Thao tác | Kết quả |
 |---|---|
-| `✓ Accept` một khối | giữ code mới; khối đỏ biến mất; file trên đĩa ghi ngay dòng vừa chấp nhận |
-| `✗ Reject` một khối | giữ code cũ; khối xanh biến mất; file trên đĩa lùi về dòng gốc |
-| `Ctrl+S` khi còn khối chưa quyết | **trung hòa** — thay toàn bộ nội dung buffer bằng đúng bytes trên đĩa trước khi lưu, nên file không đổi; buffer quay về nội dung file, extension nhả file đó (record vẫn chờ bạn duyệt), kèm thông báo một lần |
-| Quyết định xong khối cuối | buffer tự trả lại file trên đĩa (sạch, không còn gì chờ lưu) |
-| Gõ tay vào buffer đang review | extension nhả file đó (không revert gì), record vẫn chờ bạn duyệt |
-| Thoát VS Code khi còn change chưa quyết | change đó được **Accept** (lấy code mới của agent), cache dọn sạch |
-
-Điều kiện:
-
-- `files.autoSave` phải là `off` (mặc định). Nếu bạn bật auto-save, staging tự tắt và hiện
-  thông báo **một lần** — thay vào đó file được highlight và hiện code cũ bằng ghost text như
-  trước đây (bật `review-hub.autoOpenDiff` nếu muốn mở tab review tự động).
-- File binary, file agent xoá, hoặc change không có hunk → không stage, giữ nguyên cơ chế cũ
-  (highlight + tab review).
-- File không stage được vẫn dùng đường cũ: `decide()` ghi đĩa rồi reload editor.
+| `✓ Accept` | Đánh dấu hunk/file là `accepted`, code mới đã có sẵn trên đĩa |
+| `✗ Reject` | Khôi phục code cũ (`baseline`) về lại file trên đĩa |
+| Bấm `Review Diff` | Mở Native Diff Editor của VS Code so sánh giữa code cũ và code mới (hỗ trợ Inline View) |
+| Thoát VS Code | Buffer luôn sạch nên không lưu diff dở dang hay làm hỏng file thật |
+# hub-preview
