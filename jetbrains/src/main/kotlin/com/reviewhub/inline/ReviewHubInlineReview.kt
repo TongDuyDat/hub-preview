@@ -6,10 +6,8 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.EditorCustomElementRenderer
-import com.intellij.openapi.editor.Inlay
-import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.openapi.editor.markup.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
@@ -17,31 +15,22 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.EditorNotifications
 import com.intellij.ui.JBColor
 import com.reviewhub.hub.HubManager
-import com.reviewhub.model.Hunk
 import java.awt.Color
-import java.awt.Font
-import java.awt.Graphics
-import java.awt.Rectangle
 import java.io.File
 import javax.swing.Icon
 
 object ReviewHubInlineReview {
-    private val INLAYS_KEY = Key.create<MutableList<Inlay<*>>>("reviewhub.inlays")
     private val HIGHLIGHTERS_KEY = Key.create<MutableList<RangeHighlighter>>("reviewhub.highlighters")
+    private val STAGED_HASH_KEY = Key.create<String>("reviewhub.staged_hash")
 
     private val GREEN_BG = JBColor(Color(0xE6, 0xFF, 0xED), Color(0x1F, 0x3A, 0x2B))
     private val RED_BG = JBColor(Color(0xFF, 0xEB, 0xEC), Color(0x3E, 0x22, 0x24))
-    private val RED_TEXT = JBColor(Color(0xCB, 0x24, 0x31), Color(0xF8, 0x51, 0x49))
-    private val BORDER_COLOR = JBColor(Color(0xF9, 0x75, 0x83), Color(0x6E, 0x1A, 0x24))
 
     fun clear(editor: Editor) {
-        val inlays = editor.getUserData(INLAYS_KEY)
-        inlays?.forEach { it.dispose() }
-        inlays?.clear()
-
         val highlighters = editor.getUserData(HIGHLIGHTERS_KEY)
         highlighters?.forEach { editor.markupModel.removeHighlighter(it) }
         highlighters?.clear()
+        editor.putUserData(STAGED_HASH_KEY, null)
     }
 
     fun updateInlays(project: Project, editor: Editor, relPath: String) {
@@ -50,10 +39,15 @@ object ReviewHubInlineReview {
         val workspace = project.basePath ?: return
 
         ApplicationManager.getApplication().executeOnPooledThread {
-            val changeSummary = hubManager.changes.find { it.path == relPath && it.status == "pending" }
+            val changeSummary = hubManager.changes.find {
+                it.path.equals(relPath, ignoreCase = true) && it.status == "pending"
+            }
+
             if (changeSummary == null) {
                 ApplicationManager.getApplication().invokeLater {
-                    clear(editor)
+                    if (!project.isDisposed && !editor.isDisposed) {
+                        clear(editor)
+                    }
                 }
                 return@executeOnPooledThread
             }
@@ -62,7 +56,7 @@ object ReviewHubInlineReview {
 
             ApplicationManager.getApplication().invokeLater {
                 if (project.isDisposed || editor.isDisposed) return@invokeLater
-                render(project, editor, changeSet.id, changeSet.hunks, workspace, relPath)
+                render(project, editor, changeSet.id, changeSet.baseline, changeSet.hunks, workspace, relPath)
             }
         }
     }
@@ -71,52 +65,41 @@ object ReviewHubInlineReview {
         project: Project,
         editor: Editor,
         changeId: String,
-        hunks: List<Hunk>,
+        baseline: String,
+        hunks: List<com.reviewhub.model.Hunk>,
         workspace: String,
         relPath: String
     ) {
-        clear(editor)
-
-        val activeInlays = mutableListOf<Inlay<*>>()
-        val activeHighlighters = mutableListOf<RangeHighlighter>()
+        val merged = MergedDiff.build(baseline, hunks)
         val doc = editor.document
-        if (doc.lineCount == 0) return
 
-        for ((index, hunk) in hunks.withIndex()) {
-            if (hunk.decision != "pending") continue
+        // Only update document if not already holding this merged text
+        val currentHash = "${changeId}_${merged.text.hashCode()}"
+        val prevHash = editor.getUserData(STAGED_HASH_KEY)
 
-            val targetLine = hunk.newStart.coerceIn(0, doc.lineCount - 1)
-            val lineStartOffset = doc.getLineStartOffset(targetLine)
-
-            // 1. Render Deleted Lines (Block Inlay in Red)
-            if (hunk.oldLines.isNotEmpty()) {
-                val renderer = DeletedLinesBlockRenderer(index + 1, hunk.oldLines, editor)
-                val inlay = editor.inlayModel.addBlockElement(
-                    lineStartOffset,
-                    false, // relatesToPrecedingText
-                    true,  // showAbove
-                    0,     // priority
-                    renderer
-                )
-                if (inlay != null) {
-                    activeInlays.add(inlay)
+        if (prevHash != currentHash) {
+            WriteCommandAction.runWriteCommandAction(project) {
+                if (doc.text != merged.text) {
+                    doc.setText(merged.text)
                 }
             }
+            editor.putUserData(STAGED_HASH_KEY, currentHash)
+        }
 
-            // 2. Render Added Lines (Green background range highlight)
-            val startLine = targetLine
-            val endLine = if (hunk.newLines.isNotEmpty()) {
-                (hunk.newStart + hunk.newLines.size - 1).coerceIn(0, doc.lineCount - 1)
-            } else {
-                startLine
-            }
+        clear(editor)
+        val activeHighlighters = mutableListOf<RangeHighlighter>()
+
+        for (block in merged.blocks) {
+            if (block.kind == MergedBlockKind.CONTEXT) continue
+
+            val startLine = block.startLine.coerceIn(0, (doc.lineCount - 1).coerceAtLeast(0))
+            val endLine = (block.endLine - 1).coerceIn(startLine, (doc.lineCount - 1).coerceAtLeast(0))
             val startOffset = doc.getLineStartOffset(startLine)
             val endOffset = doc.getLineEndOffset(endLine)
 
-            val attributes = if (hunk.newLines.isNotEmpty()) {
-                TextAttributes().apply { backgroundColor = GREEN_BG }
-            } else {
-                TextAttributes()
+            val isDeleted = block.kind == MergedBlockKind.DELETED
+            val attributes = TextAttributes().apply {
+                backgroundColor = if (isDeleted) RED_BG else GREEN_BG
             }
 
             val highlighter = editor.markupModel.addRangeHighlighter(
@@ -127,12 +110,20 @@ object ReviewHubInlineReview {
                 HighlighterTargetArea.LINES_IN_RANGE
             )
 
-            // Gutter actions: Accept hunk / Reject hunk
-            highlighter.gutterIconRenderer = HunkGutterRenderer(project, changeId, hunk.id, index + 1, workspace, relPath)
+            if (block.hunkId != null) {
+                highlighter.gutterIconRenderer = HunkGutterRenderer(
+                    project,
+                    changeId,
+                    block.hunkId,
+                    block.hunkIndex,
+                    isDeleted,
+                    workspace,
+                    relPath
+                )
+            }
             activeHighlighters.add(highlighter)
         }
 
-        editor.putUserData(INLAYS_KEY, activeInlays)
         editor.putUserData(HIGHLIGHTERS_KEY, activeHighlighters)
     }
 
@@ -141,17 +132,23 @@ object ReviewHubInlineReview {
         private val changeId: String,
         private val hunkId: String,
         private val hunkNumber: Int,
+        private val isDeleted: Boolean,
         private val workspace: String,
         private val relPath: String
     ) : GutterIconRenderer() {
 
-        override fun getIcon(): Icon = AllIcons.Actions.Checked
+        override fun getIcon(): Icon = if (isDeleted) AllIcons.Actions.Cancel else AllIcons.Actions.Checked
 
-        override fun getTooltipText(): String = "Review Hub: Hunk #$hunkNumber (Click to Accept, Right-click for options)"
+        override fun getTooltipText(): String = if (isDeleted) {
+            "Review Hub: Removed lines in Hunk #$hunkNumber (Click to Reject, Right-click to Accept)"
+        } else {
+            "Review Hub: Added lines in Hunk #$hunkNumber (Click to Accept, Right-click to Reject)"
+        }
 
         override fun getClickAction(): AnAction = object : AnAction() {
             override fun actionPerformed(e: AnActionEvent) {
-                decideHunk("accept")
+                // Clicking deleted lines defaults to reject; clicking added lines defaults to accept
+                decideHunk(if (isDeleted) "reject" else "accept")
             }
         }
 
@@ -161,7 +158,7 @@ object ReviewHubInlineReview {
                     decideHunk("accept")
                 }
             })
-            add(object : AnAction("Reject Hunk #$hunkNumber", "Discard this hunk and keep baseline", AllIcons.Actions.Cancel) {
+            add(object : AnAction("Reject Hunk #$hunkNumber", "Discard this hunk", AllIcons.Actions.Cancel) {
                 override fun actionPerformed(e: AnActionEvent) {
                     decideHunk("reject")
                 }
@@ -189,60 +186,7 @@ object ReviewHubInlineReview {
             }
         }
 
-        override fun equals(other: Any?): Boolean = other is HunkGutterRenderer && other.hunkId == hunkId
-        override fun hashCode(): Int = hunkId.hashCode()
-    }
-
-    private class DeletedLinesBlockRenderer(
-        private val hunkNumber: Int,
-        private val lines: List<String>,
-        private val editor: Editor
-    ) : EditorCustomElementRenderer {
-
-        override fun calcWidthInPixels(inlay: Inlay<*>): Int {
-            return editor.component.width.coerceAtLeast(600)
-        }
-
-        override fun calcHeightInPixels(inlay: Inlay<*>): Int {
-            val lineHeight = editor.lineHeight
-            return lineHeight * (lines.size + 1) + 4
-        }
-
-        override fun paint(inlay: Inlay<*>, g: Graphics, targetRegion: Rectangle, textAttributes: TextAttributes) {
-            val g2 = g.create()
-            try {
-                val lineHeight = editor.lineHeight
-                val font = editor.colorsScheme.getFont(EditorFontType.PLAIN)
-                g2.font = font
-
-                // Background
-                g2.color = RED_BG
-                g2.fillRect(targetRegion.x, targetRegion.y, targetRegion.width, targetRegion.height)
-
-                // Left border indicator
-                g2.color = BORDER_COLOR
-                g2.fillRect(targetRegion.x, targetRegion.y, 4, targetRegion.height)
-
-                // Header
-                g2.color = RED_TEXT
-                g2.font = font.deriveFont(Font.BOLD)
-                val ascent = g2.fontMetrics.ascent
-                g2.drawString(
-                    "▼ Hunk #$hunkNumber (Deleted from baseline - click gutter ✓ to accept):",
-                    targetRegion.x + 12,
-                    targetRegion.y + ascent + 2
-                )
-
-                // Deleted code lines
-                g2.font = font
-                var yOffset = targetRegion.y + lineHeight + 2
-                for (line in lines) {
-                    g2.drawString("- $line", targetRegion.x + 12, yOffset + ascent)
-                    yOffset += lineHeight
-                }
-            } finally {
-                g2.dispose()
-            }
-        }
+        override fun equals(other: Any?): Boolean = other is HunkGutterRenderer && other.hunkId == hunkId && other.isDeleted == isDeleted
+        override fun hashCode(): Int = hunkId.hashCode() * 31 + isDeleted.hashCode()
     }
 }

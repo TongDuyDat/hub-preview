@@ -9,6 +9,7 @@ import com.intellij.ui.EditorNotificationProvider
 import com.intellij.ui.EditorNotifications
 import com.reviewhub.diff.ReviewHubDiffViewer
 import com.reviewhub.hub.HubManager
+import com.reviewhub.util.PathUtil
 import java.util.function.Function
 import javax.swing.JComponent
 
@@ -17,17 +18,17 @@ class ReviewHubNotificationProvider : EditorNotificationProvider {
         project: Project,
         file: VirtualFile
     ): Function<in FileEditor, out JComponent?>? {
+        val relPath = PathUtil.toRelativePath(project, file) ?: return null
         val hubManager = project.getService(HubManager::class.java)
         val basePath = project.basePath ?: return null
-        val filePath = file.path
-        if (!filePath.startsWith(basePath)) return null
 
-        val relPath = filePath.substring(basePath.length).trimStart('/', '\\').replace('\\', '/')
-        val change = hubManager.changes.find { it.path == relPath && it.status == "pending" } ?: return null
+        val change = hubManager.changes.find {
+            it.path.equals(relPath, ignoreCase = true) && it.status == "pending"
+        } ?: return null
 
         return Function { fileEditor ->
             val panel = EditorNotificationPanel(fileEditor, EditorNotificationPanel.Status.Warning)
-            panel.text = "Review Hub: ${change.pending} pending hunk(s) from AI Agent."
+            panel.text = "Review Hub: ${change.pending} pending hunk(s) from AI Agent in this file."
 
             panel.createActionLabel("✓ Accept All") {
                 val client = hubManager.client ?: return@createActionLabel
@@ -49,7 +50,7 @@ class ReviewHubNotificationProvider : EditorNotificationProvider {
                 ReviewHubDiffViewer.showDiff(project, change)
             }
 
-            // Also attach inline inlays if it's a TextEditor
+            // Immediately update in-editor inline diff for this file
             if (fileEditor is TextEditor) {
                 ReviewHubInlineReview.updateInlays(project, fileEditor.editor, relPath)
             }

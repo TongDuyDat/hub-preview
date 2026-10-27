@@ -1,29 +1,34 @@
 package com.reviewhub.inline
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.vfs.VirtualFile
+import com.reviewhub.util.PathUtil
 
 class ReviewHubEditorListener : FileEditorManagerListener {
     override fun fileOpened(source: FileEditorManager, file: VirtualFile) {
-        update(source, file)
+        ApplicationManager.getApplication().invokeLater {
+            update(source, file)
+        }
     }
 
     override fun selectionChanged(event: FileEditorManagerEvent) {
         val file = event.newFile ?: return
-        update(event.manager, file)
+        ApplicationManager.getApplication().invokeLater {
+            update(event.manager, file)
+        }
     }
 
     private fun update(manager: FileEditorManager, file: VirtualFile) {
         val project = manager.project
-        val basePath = project.basePath ?: return
-        val filePath = file.path
-        if (!filePath.startsWith(basePath)) return
+        val relPath = PathUtil.toRelativePath(project, file) ?: return
+        val editor = (manager.getSelectedEditor(file) as? TextEditor)?.editor
+            ?: manager.selectedTextEditor
+            ?: return
 
-        val relPath = filePath.substring(basePath.length).trimStart('/', '\\').replace('\\', '/')
-        val editor = (manager.getSelectedEditor(file) as? TextEditor)?.editor ?: return
         ReviewHubInlineReview.updateInlays(project, editor, relPath)
     }
 }
