@@ -1,16 +1,22 @@
 package com.reviewhub.hub
 
+import com.intellij.ide.projectView.ProjectView
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vcs.FileStatusManager
 import com.reviewhub.model.ChangeSummary
 import com.reviewhub.model.HubEntry
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.file.Paths
+import java.util.Timer
+import java.util.TimerTask
 
 @Service(Service.Level.PROJECT)
-class HubManager(private val project: Project) {
+class HubManager(private val project: Project) : Disposable {
     private val logger = Logger.getInstance(HubManager::class.java)
 
     private val json = Json {
@@ -25,9 +31,11 @@ class HubManager(private val project: Project) {
         private set
 
     private val listeners = mutableListOf<() -> Unit>()
+    private var pollingTimer: Timer? = null
 
     init {
         connect()
+        startPolling()
     }
 
     fun addChangeListener(listener: () -> Unit) {
@@ -40,6 +48,25 @@ class HubManager(private val project: Project) {
 
     private fun notifyListeners() {
         listeners.forEach { it.invoke() }
+    }
+
+    private fun startPolling() {
+        pollingTimer?.cancel()
+        pollingTimer = Timer("ReviewHubPolling", true).apply {
+            scheduleAtFixedRate(object : TimerTask() {
+                override fun run() {
+                    if (project.isDisposed) {
+                        cancel()
+                        return
+                    }
+                    if (client == null) {
+                        connect()
+                    } else {
+                        refresh()
+                    }
+                }
+            }, 1000, 2500)
+        }
     }
 
     fun connect(): Boolean {
@@ -57,7 +84,7 @@ class HubManager(private val project: Project) {
         // If not running, attempt to spawn standalone hub daemon
         val spawned = trySpawnHub()
         if (spawned) {
-            Thread.sleep(500)
+            Thread.sleep(800)
             val newEntry = readHubEntry()
             if (newEntry != null) {
                 val candidate = HubClient(newEntry.url, newEntry.token)
@@ -70,7 +97,7 @@ class HubManager(private val project: Project) {
             }
         }
 
-        logger.warn("Could not find or launch Review Hub server")
+        logger.debug("Review Hub server is not running yet.")
         return false
     }
 
@@ -78,10 +105,19 @@ class HubManager(private val project: Project) {
         val c = client ?: return
         val workspace = project.basePath ?: return
         try {
-            changes = c.listChanges(workspace)
-            notifyListeners()
+            val newChanges = c.listChanges(workspace)
+            if (newChanges != changes) {
+                changes = newChanges
+                notifyListeners()
+                ApplicationManager.getApplication().invokeLater {
+                    if (!project.isDisposed) {
+                        FileStatusManager.getInstance(project).fileStatusesChanged()
+                        ProjectView.getInstance(project).refresh()
+                    }
+                }
+            }
         } catch (e: Exception) {
-            logger.error("Failed to refresh changes from Review Hub", e)
+            logger.debug("Failed to refresh changes from Review Hub", e)
         }
     }
 
@@ -118,5 +154,11 @@ class HubManager(private val project: Project) {
             logger.warn("Failed to spawn node hub-server.cjs", e)
             false
         }
+    }
+
+    override fun dispose() {
+        pollingTimer?.cancel()
+        pollingTimer = null
+        listeners.clear()
     }
 }

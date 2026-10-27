@@ -4,6 +4,7 @@ import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.reviewhub.hub.HubManager
@@ -31,15 +32,17 @@ object ReviewHubDiffViewer {
 
             ApplicationManager.getApplication().invokeLater {
                 val factory = DiffContentFactory.getInstance()
-                val baselineContent = factory.create(project, changeSet.baseline)
-                val proposedContent = factory.create(project, changeSet.proposed)
+                val fileType = FileTypeManager.getInstance().getFileTypeByFileName(changeSet.path)
+
+                val baselineContent = factory.create(project, changeSet.baseline, fileType)
+                val proposedContent = factory.create(project, changeSet.proposed, fileType)
 
                 val request = SimpleDiffRequest(
                     "Review Hub: ${changeSet.path}",
                     baselineContent,
                     proposedContent,
-                    "Baseline (Checkpoint)",
-                    "Proposed (Agent Changes)"
+                    "Baseline (Checkpoint / On Disk)",
+                    "Proposed (${changeSet.origin.uppercase()} Agent Changes)"
                 )
 
                 DiffManager.getInstance().showDiff(project, request)

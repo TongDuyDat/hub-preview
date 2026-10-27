@@ -1,10 +1,15 @@
 package com.reviewhub.toolwindow
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.JBMenuItem
+import com.intellij.openapi.ui.JBPopupMenu
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBList
@@ -15,10 +20,12 @@ import com.reviewhub.model.ChangeSummary
 import java.awt.BorderLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.io.File
 import javax.swing.DefaultListModel
 import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import javax.swing.border.EmptyBorder
 
 class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
@@ -54,23 +61,29 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ) {
                 if (value == null) return
 
-                val badge = if (value.status == "applied") " [Applied] " else " "
-                append(badge, SimpleTextAttributes.GRAY_ATTRIBUTES)
+                icon = if (value.status == "applied") AllIcons.Actions.Commit else AllIcons.FileTypes.Any_type
+
+                val prefix = if (value.origin == "mcp") "[MCP] " else "[FS] "
+                append(prefix, SimpleTextAttributes.GRAY_ATTRIBUTES)
 
                 append(value.path, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
 
-                val stats = " (+${value.added} / -${value.removed}) [${value.pending} hunks pending]"
+                val stats = " (+${value.added} / -${value.removed}) [${value.pending} pending]"
                 append(stats, SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
             }
         }
 
         changeList.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 2) {
-                    val selected = changeList.selectedValue
-                    if (selected != null) {
-                        ReviewHubDiffViewer.showDiff(project, selected)
-                    }
+                val index = changeList.locationToIndex(e.point)
+                if (index < 0) return
+                changeList.selectedIndex = index
+                val selected = changeList.selectedValue ?: return
+
+                if (e.clickCount == 2 && SwingUtilities.isLeftMouseButton(e)) {
+                    ReviewHubDiffViewer.showDiff(project, selected)
+                } else if (SwingUtilities.isRightMouseButton(e)) {
+                    showContextMenu(e, selected)
                 }
             }
         })
@@ -79,11 +92,58 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
         contentPanel.add(JBScrollPane(changeList), BorderLayout.CENTER)
 
         val bottomPanel = JPanel(BorderLayout())
-        bottomPanel.border = EmptyBorder(4, 8, 4, 8)
+        bottomPanel.border = EmptyBorder(6, 10, 6, 10)
         bottomPanel.add(statusLabel, BorderLayout.WEST)
         contentPanel.add(bottomPanel, BorderLayout.SOUTH)
 
         setContent(contentPanel)
+    }
+
+    private fun showContextMenu(e: MouseEvent, item: ChangeSummary) {
+        val menu = JBPopupMenu()
+
+        val diffItem = JBMenuItem("Compare with Baseline (Diff)", AllIcons.Actions.Diff)
+        diffItem.addActionListener {
+            ReviewHubDiffViewer.showDiff(project, item)
+        }
+        menu.add(diffItem)
+
+        val openItem = JBMenuItem("Open in Editor", AllIcons.Actions.Edit)
+        openItem.addActionListener {
+            val basePath = project.basePath ?: return@addActionListener
+            val file = File(basePath, item.path)
+            val vf = LocalFileSystem.getInstance().findFileByIoFile(file)
+            if (vf != null) {
+                FileEditorManager.getInstance(project).openFile(vf, true)
+            }
+        }
+        menu.add(openItem)
+
+        menu.addSeparator()
+
+        val acceptItem = JBMenuItem("Accept File", AllIcons.Actions.Checked)
+        acceptItem.addActionListener {
+            val client = hubManager.client ?: return@addActionListener
+            val workspace = project.basePath ?: return@addActionListener
+            ApplicationManager.getApplication().executeOnPooledThread {
+                client.accept(changeId = item.id, workspace = workspace)
+                hubManager.refresh()
+            }
+        }
+        menu.add(acceptItem)
+
+        val rejectItem = JBMenuItem("Reject File", AllIcons.Actions.Cancel)
+        rejectItem.addActionListener {
+            val client = hubManager.client ?: return@addActionListener
+            val workspace = project.basePath ?: return@addActionListener
+            ApplicationManager.getApplication().executeOnPooledThread {
+                client.reject(changeId = item.id, workspace = workspace)
+                hubManager.refresh()
+            }
+        }
+        menu.add(rejectItem)
+
+        menu.show(changeList, e.x, e.y)
     }
 
     private fun setupListeners() {
@@ -102,12 +162,15 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
 
         if (hubManager.client == null) {
-            statusLabel.text = "Not connected to Review Hub"
+            statusLabel.text = "Waiting for Review Hub..."
+            statusLabel.icon = AllIcons.General.Warning
         } else if (list.isEmpty()) {
             statusLabel.text = "No pending changes"
+            statusLabel.icon = AllIcons.General.InspectionsOK
         } else {
             val totalHunks = list.sumOf { it.pending }
             statusLabel.text = "${list.size} file(s), $totalHunks pending hunk(s)"
+            statusLabel.icon = AllIcons.Actions.Diff
         }
     }
 }
