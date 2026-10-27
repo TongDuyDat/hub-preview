@@ -113,6 +113,7 @@ class HubManager(private val project: Project) : Disposable {
                     if (!project.isDisposed) {
                         FileStatusManager.getInstance(project).fileStatusesChanged()
                         ProjectView.getInstance(project).refresh()
+                        com.intellij.ui.EditorNotifications.getInstance(project).updateAllNotifications()
                     }
                 }
             }
