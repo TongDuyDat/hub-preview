@@ -88,6 +88,11 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
         })
 
+        changeList.emptyText.text = "No pending changes"
+        changeList.emptyText.appendLine("Click here to simulate an AI agent change", SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) {
+            simulateTestChange()
+        }
+
         val contentPanel = JPanel(BorderLayout())
         contentPanel.add(JBScrollPane(changeList), BorderLayout.CENTER)
 
@@ -97,6 +102,27 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
         contentPanel.add(bottomPanel, BorderLayout.SOUTH)
 
         setContent(contentPanel)
+    }
+
+    private fun simulateTestChange() {
+        val client = hubManager.client ?: return
+        val workspace = project.basePath ?: return
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val testPath = "DEMO_REVIEW.md"
+            val testFile = File(workspace, testPath)
+            if (!testFile.exists()) {
+                testFile.writeText("# Demo Review File\n\nOriginal baseline content on disk.\n", Charsets.UTF_8)
+            }
+            val proposed = """
+# Demo Review File (Modified by AI Agent)
+
+This line was edited by the agent!
++ [Added Line] Tested in JetBrains Platform Diff Viewer.
++ [Added Line] Per-hunk Accept and Reject support!
+""".trimIndent()
+            client.propose(workspace, testPath, proposed)
+            hubManager.refresh()
+        }
     }
 
     private fun showContextMenu(e: MouseEvent, item: ChangeSummary) {

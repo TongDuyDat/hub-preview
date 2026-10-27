@@ -41,6 +41,20 @@ class HubClient(
     }
 
     fun listChanges(workspace: String): List<ChangeSummary> {
+        val candidates = listOf(
+            workspace,
+            workspace.replace('\\', '/'),
+            workspace.replace('/', '\\')
+        ).distinct()
+
+        for (ws in candidates) {
+            val list = fetchList(ws)
+            if (list.isNotEmpty()) return list
+        }
+        return emptyList()
+    }
+
+    private fun fetchList(workspace: String): List<ChangeSummary> {
         val url = "$baseUrl/changes/list?workspace=${java.net.URLEncoder.encode(workspace, "UTF-8")}"
         val req = Request.Builder()
             .url(url)
@@ -48,14 +62,35 @@ class HubClient(
             .get()
             .build()
 
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) return emptyList()
-            val body = resp.body?.string() ?: return emptyList()
-            return try {
+        return try {
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return emptyList()
+                val body = resp.body?.string() ?: return emptyList()
                 json.decodeFromString<ListChangesResponse>(body).files
-            } catch (_: Exception) {
-                emptyList()
             }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun propose(workspace: String, path: String, content: String): Boolean {
+        val normalizedWs = workspace.replace('\\', '/')
+        val map = mapOf(
+            "workspace" to normalizedWs,
+            "path" to path,
+            "content" to content
+        )
+        val bodyStr = json.encodeToString(map)
+        val req = Request.Builder()
+            .url("$baseUrl/changes/propose")
+            .header("Authorization", "Bearer $token")
+            .post(bodyStr.toRequestBody(jsonMediaType))
+            .build()
+
+        return try {
+            client.newCall(req).execute().use { it.isSuccessful }
+        } catch (_: Exception) {
+            false
         }
     }
 

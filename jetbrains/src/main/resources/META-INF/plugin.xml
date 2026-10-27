@@ -57,6 +57,12 @@
                     text="Refresh Changes"
                     description="Refresh pending changes from Review Hub"
                     icon="AllIcons.Actions.Refresh"/>
+            <separator/>
+            <action id="ReviewHub.CreateTestChange"
+                    class="com.reviewhub.actions.CreateTestChangeAction"
+                    text="Simulate Agent Change"
+                    description="Stage a test change to demo diff review"
+                    icon="AllIcons.Actions.Lightning"/>
         </group>
     </actions>
 </idea-plugin>
