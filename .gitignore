@@ -2,6 +2,7 @@ node_modules/
 dist/
 .test-dist/
 *.vsix
+*.zip
 .idea/
 .gradle/
 jetbrains/build/
