@@ -26,7 +26,13 @@
 
         <fileStatusProvider implementation="com.reviewhub.status.ReviewHubFileStatusProvider"/>
         <projectViewNodeDecorator implementation="com.reviewhub.status.ReviewHubNodeDecorator"/>
+        <editorNotificationProvider implementation="com.reviewhub.inline.ReviewHubNotificationProvider"/>
     </extensions>
+
+    <projectListeners>
+        <listener class="com.reviewhub.inline.ReviewHubEditorListener"
+                  topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
+    </projectListeners>
 
     <actions>
         <group id="ReviewHub.ToolBar" text="Review Hub Actions" popup="false">
