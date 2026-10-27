@@ -29,10 +29,20 @@ const mcpOptions = {
   banner: { js: "#!/usr/bin/env node" },
 };
 
+const hubServerOptions = {
+  ...common,
+  entryPoints: ["src/hub-server-standalone.ts"],
+  external: ["node:sqlite"],
+  outfile: "dist/hub-server.cjs",
+  banner: { js: "#!/usr/bin/env node" },
+};
+
+const allTargets = [extensionOptions, mcpOptions, hubServerOptions];
+
 if (watch) {
-  Promise.all([esbuild.context(extensionOptions), esbuild.context(mcpOptions)])
-    .then(([a, b]) => Promise.all([a.watch(), b.watch()]))
+  Promise.all(allTargets.map((opt) => esbuild.context(opt)))
+    .then((contexts) => Promise.all(contexts.map((ctx) => ctx.watch())))
     .catch(() => process.exit(1));
 } else {
-  Promise.all([esbuild.build(extensionOptions), esbuild.build(mcpOptions)]).catch(() => process.exit(1));
+  Promise.all(allTargets.map((opt) => esbuild.build(opt))).catch(() => process.exit(1));
 }
