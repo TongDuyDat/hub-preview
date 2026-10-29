@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { HubServer } from "../src/hub-server";
+import { HubServer } from "../src/server/hub-server";
 
 async function hubOn(workspace: string, content: string) {
   fs.writeFileSync(path.join(workspace, "a.txt"), content);

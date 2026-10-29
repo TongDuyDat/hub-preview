@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildMergedView } from "../src/merged-diff";
-import { computeHunks } from "../src/hunk-diff";
-import type { Hunk } from "../src/types";
+import { buildMergedView } from "../src/core/merged-diff";
+import { computeHunks } from "../src/core/hunk-diff";
+import type { Hunk } from "../src/core/types";
 
 function hunksFor(base: string[], proposed: string[]): Hunk[] {
   return computeHunks(base, proposed);

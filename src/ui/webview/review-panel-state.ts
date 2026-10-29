@@ -8,9 +8,9 @@
  * `buildReviewState` produces the review tab's flat line list, reusing `buildMergedView`
  * so the diff logic is not duplicated in JavaScript.
  */
-import { buildMergedView } from "./merged-diff";
-import { diffStats, splitContent } from "./hunk-diff";
-import type { ChangeSet, ChangeStatus, CheckpointInfo, HunkDecision } from "./types";
+import { buildMergedView } from "../../core/merged-diff";
+import { diffStats, splitContent } from "../../core/hunk-diff";
+import type { ChangeSet, ChangeStatus, CheckpointInfo, HunkDecision } from "../../core/types";
 
 export interface PanelSource {
   workspaces(): string[];

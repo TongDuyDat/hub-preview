@@ -10,7 +10,7 @@
  * resolved change sets from `findChangeByPath`, so "badge present" means "still to review".
  */
 import * as vscode from "vscode";
-import type { ChangeStore } from "./change-store";
+import type { ChangeStore } from "../../core/change-store";
 
 export class ChangeFileDecorationProvider implements vscode.FileDecorationProvider, vscode.Disposable {
   // `undefined` means "re-evaluate every URI", which is what we want after any decision.

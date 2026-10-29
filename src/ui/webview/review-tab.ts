@@ -13,7 +13,7 @@
 import * as vscode from "vscode";
 import { buildReviewState } from "./review-panel-state";
 import { webviewHtml } from "./webview-html";
-import type { ChangeSet } from "./types";
+import type { ChangeSet } from "../../core/types";
 
 export interface TabSource {
   change(changeId: string): ChangeSet | undefined;

@@ -5,8 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 // The watcher imports `vscode`, aliased to the stub by the test runner.
-import { WorkspaceWatcher } from "../src/workspace-watcher";
-import { ChangeStore } from "../src/change-store";
+import { WorkspaceWatcher } from "../src/watcher/workspace-watcher";
+import { ChangeStore } from "../src/core/change-store";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-watch-"));

@@ -13,7 +13,7 @@
  * Pure of `vscode`: the store and the workspace list arrive as parameters, so the rule is
  * unit-testable and `src/extension.ts` only wires it.
  */
-import type { ChangeSet } from "./types";
+import type { ChangeSet } from "../core/types";
 
 export interface FlushStore {
   listChangeSets(workspace: string): ChangeSet[];

@@ -14,9 +14,9 @@
  * single line.
  */
 import * as vscode from "vscode";
-import type { ChangeStore } from "./change-store";
-import type { ChangeSet, Hunk } from "./types";
-import { splitContent, diskFrame, resolveHunkRanges } from "./hunk-diff";
+import type { ChangeStore } from "../../core/change-store";
+import type { ChangeSet, Hunk } from "../../core/types";
+import { splitContent, diskFrame, resolveHunkRanges } from "../../core/hunk-diff";
 import { buildStagedView, stagedMarks, type StagedMark } from "./staged-content";
 
 /** Red/green foregrounds for the single-line ghost text, so a deletion reads as red. */

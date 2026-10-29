@@ -10,8 +10,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { createRegistry, defaultBaseDir, pidAlive } from "../src/registry";
-import type { HubEntry } from "../src/registry";
+import { createRegistry, defaultBaseDir, pidAlive } from "../src/server/registry";
+import type { HubEntry } from "../src/server/registry";
 
 interface HubTarget {
   url: string;

@@ -14,7 +14,7 @@
  * state machine is unit-testable and `src/extension.ts` owns all VS Code calls.
  */
 import { buildStagedText, pendingCount, stageSkipReason, type StageSkipReason } from "./staged-content";
-import type { ChangeSet } from "./types";
+import type { ChangeSet } from "../../core/types";
 
 export type StageNotice = StageSkipReason | "save-blocked";
 

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ChangeStore } from "../src/change-store";
-import { computeHunks, resolveHunkRanges, splitContent, joinContent } from "../src/hunk-diff";
+import { ChangeStore } from "../src/core/change-store";
+import { computeHunks, resolveHunkRanges, splitContent, joinContent } from "../src/core/hunk-diff";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-reg-"));

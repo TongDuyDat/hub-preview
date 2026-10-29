@@ -31,7 +31,7 @@ const mcpOptions = {
 
 const hubServerOptions = {
   ...common,
-  entryPoints: ["src/hub-server-standalone.ts"],
+  entryPoints: ["src/server/hub-server-standalone.ts"],
   external: ["node:sqlite"],
   outfile: "dist/hub-server.cjs",
   banner: { js: "#!/usr/bin/env node" },

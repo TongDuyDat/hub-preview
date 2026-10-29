@@ -14,9 +14,9 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ChangeStore } from "./change-store";
-import { globToRegExp } from "./change-store";
-import { gitChangedFiles } from "./git-baseline";
+import type { ChangeStore } from "../core/change-store";
+import { globToRegExp } from "../core/change-store";
+import { gitChangedFiles } from "../core/git-baseline";
 
 const POLL_MS = 3000;
 const SCAN_MAX_FILES = 20_000;

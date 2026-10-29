@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeHunks, resolveLines, splitContent, joinContent, diffContent, resolveContent, rebaseDecisions } from "../src/hunk-diff";
+import { computeHunks, resolveLines, splitContent, joinContent, diffContent, resolveContent, rebaseDecisions } from "../src/core/hunk-diff";
 
 test("identical content produces no hunks", () => {
   assert.equal(computeHunks(["a", "b"], ["a", "b"]).length, 0);

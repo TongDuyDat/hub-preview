@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { reloadOpenEditors, type ReloadableDocument } from "../src/editor-sync";
+import { reloadOpenEditors, type ReloadableDocument } from "../src/ui/editor/editor-sync";
 
 function doc(fsPath: string, opts: { dirty?: boolean; scheme?: string } = {}): ReloadableDocument {
   return { uri: { scheme: opts.scheme ?? "file", fsPath }, isDirty: opts.dirty ?? false };

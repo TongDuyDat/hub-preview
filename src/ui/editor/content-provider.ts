@@ -4,7 +4,7 @@
  * built-in diff can render them. Mirrors Antigravity's jetski-diff scheme.
  */
 import * as vscode from "vscode";
-import type { ChangeStore } from "./change-store";
+import type { ChangeStore } from "../../core/change-store";
 
 export const SCHEME = "review-hub";
 

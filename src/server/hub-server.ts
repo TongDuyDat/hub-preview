@@ -9,12 +9,12 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import { URL } from "node:url";
-import { ChangeStore, type SnapshotOptions } from "./change-store";
-import { readFileSafe, resolveInside, toPosix } from "./file-snapshot";
-import { resolveLines, splitContent, joinContent } from "./hunk-diff";
+import { ChangeStore, type SnapshotOptions } from "../core/change-store";
+import { readFileSafe, resolveInside, toPosix } from "../core/file-snapshot";
+import { resolveLines, splitContent, joinContent } from "../core/hunk-diff";
 import type { WindowState } from "./window-registry";
-import type { ApiError, ChangeSet } from "./types";
-import { HUB_PROTOCOL } from "./types";
+import type { ApiError, ChangeSet } from "../core/types";
+import { HUB_PROTOCOL } from "../core/types";
 
 export interface HubEvents {
   onChanged?: (workspace: string, path: string, changeId: string) => void;

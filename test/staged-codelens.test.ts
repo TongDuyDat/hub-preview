@@ -4,9 +4,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "./vscode-stub";
-import { ChangeStore } from "../src/change-store";
-import { HunkCodeLensProvider } from "../src/diff-view";
-import { buildStagedText } from "../src/staged-content";
+import { ChangeStore } from "../src/core/change-store";
+import { HunkCodeLensProvider } from "../src/ui/editor/diff-view";
+import { buildStagedText } from "../src/ui/editor/staged-content";
 
 function storeFor(OLD: string, NEW: string): { ws: string; store: ChangeStore; changeId: string } {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), "rh-staged-lens-"));

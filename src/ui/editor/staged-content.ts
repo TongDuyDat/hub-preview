@@ -13,9 +13,9 @@
  * is what keeps the buffer byte-identical to the file `settle()` wrote, which is what lets
  * the engine hand the buffer back to disk safely (spec F2).
  */
-import { buildMergedView, type MergedView } from "./merged-diff";
-import { joinContent, splitContent } from "./hunk-diff";
-import type { ChangeSet } from "./types";
+import { buildMergedView, type MergedView } from "../../core/merged-diff";
+import { joinContent, splitContent } from "../../core/hunk-diff";
+import type { ChangeSet } from "../../core/types";
 
 export type StageSkipReason = "binary" | "no-hunks" | "already-decided" | "auto-save";
 

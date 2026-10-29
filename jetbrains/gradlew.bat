@@ -40,6 +40,10 @@ set DEFAULT_JVM_OPTS=-Dfile.encoding=UTF-8 "-Xmx64m" "-Xms64m"
 
 @rem Find java.exe
 if defined JAVA_HOME goto findJavaFromJavaHome
+if exist "%USERPROFILE%\.jdks\corretto-18.0.2\bin\java.exe" (
+    set "JAVA_HOME=%USERPROFILE%\.jdks\corretto-18.0.2"
+    goto findJavaFromJavaHome
+)
 if exist "C:\Users\AD\.jdks\corretto-18.0.2\bin\java.exe" (
     set "JAVA_HOME=C:\Users\AD\.jdks\corretto-18.0.2"
     goto findJavaFromJavaHome

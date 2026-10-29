@@ -5,8 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import * as vscode from "./vscode-stub";
-import { ChangeStore } from "../src/change-store";
-import { ReviewTab, type TabActions } from "../src/review-tab";
+import { ChangeStore } from "../src/core/change-store";
+import { ReviewTab, type TabActions } from "../src/ui/webview/review-tab";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-tab-"));

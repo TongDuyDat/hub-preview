@@ -1,6 +1,6 @@
 <idea-plugin>
     <id>com.reviewhub.jetbrains</id>
-    <name>Review Hub</name>
+    <name>Review Hub (Antigravity Edition)</name>
     <vendor email="support@reviewhub.dev" url="https://github.com/review-hub">Review Hub</vendor>
 
     <description><![CDATA[
@@ -12,6 +12,7 @@
             <li><b>Hunk-level review:</b> Accept or reject individual diff hunks.</li>
             <li><b>Native JetBrains Diff:</b> High-performance side-by-side or unified diff viewing.</li>
             <li><b>Project View Indicators:</b> Visual badges for files with pending reviews.</li>
+            <li><b>Inline Antigravity Review:</b> In-editor Accept/Reject with smooth file navigation.</li>
         </ul>
     ]]></description>
 
@@ -26,7 +27,6 @@
 
         <fileStatusProvider implementation="com.reviewhub.status.ReviewHubFileStatusProvider"/>
         <projectViewNodeDecorator implementation="com.reviewhub.status.ReviewHubNodeDecorator"/>
-        <editorNotificationProvider implementation="com.reviewhub.inline.ReviewHubNotificationProvider"/>
     </extensions>
 
     <projectListeners>
@@ -63,12 +63,6 @@
                     text="Refresh Changes"
                     description="Refresh pending changes from Review Hub"
                     icon="AllIcons.Actions.Refresh"/>
-            <separator/>
-            <action id="ReviewHub.CreateTestChange"
-                    class="com.reviewhub.actions.CreateTestChangeAction"
-                    text="Simulate Agent Change"
-                    description="Stage a test change to demo diff review"
-                    icon="AllIcons.Actions.Lightning"/>
         </group>
     </actions>
 </idea-plugin>

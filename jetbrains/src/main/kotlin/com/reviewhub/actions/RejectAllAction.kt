@@ -4,7 +4,9 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.reviewhub.hub.HubManager
+import com.reviewhub.inline.ReviewHubInlineReview
 
 class RejectAllAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
@@ -12,6 +14,11 @@ class RejectAllAction : AnAction() {
         val hubManager = project.getService(HubManager::class.java)
         val client = hubManager.client ?: return
         val workspace = project.basePath ?: return
+
+        if (hubManager.changes.isEmpty()) {
+            Messages.showInfoMessage(project, "No pending changes to reject.", "Review Hub")
+            return
+        }
 
         val confirm = Messages.showYesNoDialog(
             project,
@@ -27,6 +34,11 @@ class RejectAllAction : AnAction() {
                 client.reject(changeId = change.id, workspace = workspace)
             }
             hubManager.refresh()
+            ApplicationManager.getApplication().invokeLater {
+                if (project.isDisposed) return@invokeLater
+                ReviewHubInlineReview.reloadAllOpenReviewEditors(project)
+                VirtualFileManager.getInstance().asyncRefresh(null)
+            }
         }
     }
 }

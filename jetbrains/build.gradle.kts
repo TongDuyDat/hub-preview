@@ -25,6 +25,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation(kotlin("test"))
+    testImplementation("junit:junit:4.13.2")
 }
 
 intellijPlatform {
@@ -47,6 +48,15 @@ intellijPlatform {
 }
 
 tasks {
+    processResources {
+        val hubBundle = file("../dist/hub-server.cjs")
+        if (hubBundle.exists()) {
+            from(hubBundle) {
+                into("server")
+            }
+        }
+    }
+
     withType<JavaCompile> {
         sourceCompatibility = "17"
         targetCompatibility = "17"

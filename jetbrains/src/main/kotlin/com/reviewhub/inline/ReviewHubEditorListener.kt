@@ -22,6 +22,14 @@ class ReviewHubEditorListener : FileEditorManagerListener {
         }
     }
 
+    override fun fileClosed(source: FileEditorManager, file: VirtualFile) {
+        val project = source.project
+        val editor = (source.getSelectedEditor(file) as? TextEditor)?.editor
+        if (editor != null && !editor.isDisposed) {
+            ReviewHubInlineReview.clear(project, editor, file)
+        }
+    }
+
     private fun update(manager: FileEditorManager, file: VirtualFile) {
         val project = manager.project
         val relPath = PathUtil.toRelativePath(project, file) ?: return

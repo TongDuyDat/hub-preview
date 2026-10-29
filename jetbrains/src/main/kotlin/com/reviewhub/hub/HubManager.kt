@@ -5,10 +5,16 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.FileStatusManager
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.ui.EditorNotifications
+import com.reviewhub.inline.ReviewHubInlineReview
 import com.reviewhub.model.ChangeSummary
 import com.reviewhub.model.HubEntry
+import com.reviewhub.util.PathUtil
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.file.Paths
@@ -30,6 +36,7 @@ class HubManager(private val project: Project) : Disposable {
     var changes: List<ChangeSummary> = emptyList()
         private set
 
+    private var lastHubJsonTime: Long = 0L
     private val listeners = mutableListOf<() -> Unit>()
     private var pollingTimer: Timer? = null
 
@@ -47,7 +54,13 @@ class HubManager(private val project: Project) : Disposable {
     }
 
     private fun notifyListeners() {
-        listeners.forEach { it.invoke() }
+        listeners.forEach {
+            try {
+                it.invoke()
+            } catch (e: Exception) {
+                logger.warn("Error in change listener", e)
+            }
+        }
     }
 
     private fun startPolling() {
@@ -59,7 +72,13 @@ class HubManager(private val project: Project) : Disposable {
                         cancel()
                         return
                     }
-                    if (client == null) {
+
+                    // Check if hub.json has been updated or server restarted
+                    val hubFile = getHubJsonFile()
+                    val currentMtime = hubFile?.lastModified() ?: 0L
+                    val hubUpdated = hubFile != null && currentMtime > lastHubJsonTime
+
+                    if (client == null || hubUpdated) {
                         connect()
                     } else {
                         refresh()
@@ -84,7 +103,7 @@ class HubManager(private val project: Project) : Disposable {
         // If not running, attempt to spawn standalone hub daemon
         val spawned = trySpawnHub()
         if (spawned) {
-            Thread.sleep(800)
+            Thread.sleep(1000)
             val newEntry = readHubEntry()
             if (newEntry != null) {
                 val candidate = HubClient(newEntry.url, newEntry.token)
@@ -113,24 +132,54 @@ class HubManager(private val project: Project) : Disposable {
                     if (!project.isDisposed) {
                         FileStatusManager.getInstance(project).fileStatusesChanged()
                         ProjectView.getInstance(project).refresh()
-                        com.intellij.ui.EditorNotifications.getInstance(project).updateAllNotifications()
+                        VirtualFileManager.getInstance().asyncRefresh(null)
+
+                        // Update inlays in all open editors
+                        val fileEditorManager = FileEditorManager.getInstance(project)
+                        for (editor in fileEditorManager.allEditors) {
+                            if (editor is TextEditor) {
+                                val vf = editor.file
+                                if (vf != null) {
+                                    val rPath = PathUtil.toRelativePath(project, vf)
+                                    if (rPath != null) {
+                                        ReviewHubInlineReview.updateInlays(project, editor.editor, rPath)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         } catch (e: Exception) {
             logger.debug("Failed to refresh changes from Review Hub", e)
+            // If connection failed, test health; if dead, reset client to trigger reconnect
+            if (!c.healthCheck()) {
+                client = null
+                notifyListeners()
+            }
+        }
+    }
+
+    fun findChange(relPath: String): ChangeSummary? {
+        return changes.find {
+            PathUtil.pathsMatch(it.path, relPath) && it.status == "pending"
         }
     }
 
     fun isPending(path: String): Boolean {
-        return changes.any { it.path == path && it.status == "pending" }
+        return findChange(path) != null
+    }
+
+    private fun getHubJsonFile(): File? {
+        val home = System.getProperty("user.home") ?: return null
+        val hubJson = Paths.get(home, ".review-hub", "hub.json").toFile()
+        return if (hubJson.exists()) hubJson else null
     }
 
     private fun readHubEntry(): HubEntry? {
-        val home = System.getProperty("user.home")
-        val hubJson = Paths.get(home, ".review-hub", "hub.json").toFile()
-        if (!hubJson.exists()) return null
+        val hubJson = getHubJsonFile() ?: return null
         return try {
+            lastHubJsonTime = hubJson.lastModified()
             json.decodeFromString<HubEntry>(hubJson.readText(Charsets.UTF_8))
         } catch (e: Exception) {
             logger.warn("Failed to parse hub.json", e)
@@ -140,13 +189,21 @@ class HubManager(private val project: Project) : Disposable {
 
     private fun trySpawnHub(): Boolean {
         val workspace = project.basePath ?: return false
-        val distScript = File(workspace, "dist/hub-server.cjs")
-        if (!distScript.exists()) {
-            return false
-        }
+        val home = System.getProperty("user.home")
+
+        val candidates = listOfNotNull(
+            File(workspace, "dist/hub-server.cjs"),
+            File(workspace, "../dist/hub-server.cjs"),
+            File(workspace, "../hub-preview/dist/hub-server.cjs"),
+            home?.let { File(it, ".review-hub/bin/hub-server.cjs") },
+            home?.let { File(it, ".review-hub/dist/hub-server.cjs") },
+            home?.let { File(it, ".review-hub/hub-server.cjs") }
+        )
+
+        val targetScript = candidates.firstOrNull { it.exists() } ?: return false
 
         return try {
-            val pb = ProcessBuilder("node", distScript.absolutePath, workspace)
+            val pb = ProcessBuilder("node", targetScript.absolutePath, workspace)
             pb.directory(File(workspace))
             pb.redirectErrorStream(true)
             pb.start()

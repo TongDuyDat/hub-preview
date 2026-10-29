@@ -8,14 +8,17 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.JBMenuItem
 import com.intellij.openapi.ui.JBPopupMenu
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.reviewhub.diff.ReviewHubDiffViewer
 import com.reviewhub.hub.HubManager
+import com.reviewhub.inline.ReviewHubInlineReview
 import com.reviewhub.model.ChangeSummary
 import java.awt.BorderLayout
 import java.awt.event.MouseAdapter
@@ -89,9 +92,7 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
         })
 
         changeList.emptyText.text = "No pending changes"
-        changeList.emptyText.appendLine("Click here to simulate an AI agent change", SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) {
-            simulateTestChange()
-        }
+        changeList.emptyText.appendLine("Edits proposed by AI coding agents will appear here for review.", SimpleTextAttributes.GRAYED_ATTRIBUTES, null)
 
         val contentPanel = JPanel(BorderLayout())
         contentPanel.add(JBScrollPane(changeList), BorderLayout.CENTER)
@@ -102,27 +103,6 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
         contentPanel.add(bottomPanel, BorderLayout.SOUTH)
 
         setContent(contentPanel)
-    }
-
-    private fun simulateTestChange() {
-        val client = hubManager.client ?: return
-        val workspace = project.basePath ?: return
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val testPath = "DEMO_REVIEW.md"
-            val testFile = File(workspace, testPath)
-            if (!testFile.exists()) {
-                testFile.writeText("# Demo Review File\n\nOriginal baseline content on disk.\n", Charsets.UTF_8)
-            }
-            val proposed = """
-# Demo Review File (Modified by AI Agent)
-
-This line was edited by the agent!
-+ [Added Line] Tested in JetBrains Platform Diff Viewer.
-+ [Added Line] Per-hunk Accept and Reject support!
-""".trimIndent()
-            client.propose(workspace, testPath, proposed)
-            hubManager.refresh()
-        }
     }
 
     private fun showContextMenu(e: MouseEvent, item: ChangeSummary) {
@@ -154,6 +134,15 @@ This line was edited by the agent!
             ApplicationManager.getApplication().executeOnPooledThread {
                 client.accept(changeId = item.id, workspace = workspace)
                 hubManager.refresh()
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed) return@invokeLater
+                    val file = File(workspace, item.path)
+                    val vf = LocalFileSystem.getInstance().findFileByIoFile(file)
+                    if (vf != null && vf.isValid) {
+                        ReviewHubInlineReview.clearFileReview(project, vf)
+                    }
+                    VirtualFileManager.getInstance().asyncRefresh(null)
+                }
             }
         }
         menu.add(acceptItem)
@@ -165,9 +154,72 @@ This line was edited by the agent!
             ApplicationManager.getApplication().executeOnPooledThread {
                 client.reject(changeId = item.id, workspace = workspace)
                 hubManager.refresh()
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed) return@invokeLater
+                    val file = File(workspace, item.path)
+                    val vf = LocalFileSystem.getInstance().findFileByIoFile(file)
+                    if (vf != null && vf.isValid) {
+                        ReviewHubInlineReview.clearFileReview(project, vf)
+                    }
+                    VirtualFileManager.getInstance().asyncRefresh(null)
+                }
             }
         }
         menu.add(rejectItem)
+
+        menu.addSeparator()
+
+        val acceptAllItem = JBMenuItem("Accept All Changes", AllIcons.Actions.Checked)
+        acceptAllItem.addActionListener {
+            val client = hubManager.client ?: return@addActionListener
+            val workspace = project.basePath ?: return@addActionListener
+            val confirm = Messages.showYesNoDialog(
+                project,
+                "Accept all pending changes and write them to disk?",
+                "Accept All",
+                Messages.getQuestionIcon()
+            )
+            if (confirm == Messages.YES) {
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    for (c in hubManager.changes) {
+                        client.accept(changeId = c.id, workspace = workspace)
+                    }
+                    hubManager.refresh()
+                    ApplicationManager.getApplication().invokeLater {
+                        if (project.isDisposed) return@invokeLater
+                        ReviewHubInlineReview.reloadAllOpenReviewEditors(project)
+                        VirtualFileManager.getInstance().asyncRefresh(null)
+                    }
+                }
+            }
+        }
+        menu.add(acceptAllItem)
+
+        val rejectAllItem = JBMenuItem("Reject All Changes", AllIcons.Actions.Cancel)
+        rejectAllItem.addActionListener {
+            val client = hubManager.client ?: return@addActionListener
+            val workspace = project.basePath ?: return@addActionListener
+            val confirm = Messages.showYesNoDialog(
+                project,
+                "Reject all pending changes and restore baseline?",
+                "Reject All",
+                Messages.getWarningIcon()
+            )
+            if (confirm == Messages.YES) {
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    for (c in hubManager.changes) {
+                        client.reject(changeId = c.id, workspace = workspace)
+                    }
+                    hubManager.refresh()
+                    ApplicationManager.getApplication().invokeLater {
+                        if (project.isDisposed) return@invokeLater
+                        ReviewHubInlineReview.reloadAllOpenReviewEditors(project)
+                        VirtualFileManager.getInstance().asyncRefresh(null)
+                    }
+                }
+            }
+        }
+        menu.add(rejectAllItem)
 
         menu.show(changeList, e.x, e.y)
     }
@@ -188,10 +240,10 @@ This line was edited by the agent!
         }
 
         if (hubManager.client == null) {
-            statusLabel.text = "Waiting for Review Hub..."
+            statusLabel.text = "Review Hub: Connecting..."
             statusLabel.icon = AllIcons.General.Warning
         } else if (list.isEmpty()) {
-            statusLabel.text = "No pending changes"
+            statusLabel.text = "Review Hub: Active (0 pending changes)"
             statusLabel.icon = AllIcons.General.InspectionsOK
         } else {
             val totalHunks = list.sumOf { it.pending }

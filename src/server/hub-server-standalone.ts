@@ -4,7 +4,7 @@
  */
 import { HubServer } from "./hub-server";
 import { createRegistry, defaultBaseDir, pidAlive, type HubEntry } from "./registry";
-import { HUB_PROTOCOL } from "./types";
+import { HUB_PROTOCOL } from "../core/types";
 
 async function main() {
   const baseDir = process.env.REVIEW_HUB_DIR ?? defaultBaseDir();

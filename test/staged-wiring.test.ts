@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ChangeStore } from "../src/change-store";
-import { buildStagedText } from "../src/staged-content";
-import { STAGED_CONTEXT_KEY } from "../src/staged-review";
+import { ChangeStore } from "../src/core/change-store";
+import { buildStagedText } from "../src/ui/editor/staged-content";
+import { STAGED_CONTEXT_KEY } from "../src/ui/editor/staged-review";
 
 // The runner aliases `vscode` to test/vscode-stub.ts. This file activates the extension in
 // its own process, so it gets a private hub and a private ~/.review-hub.
@@ -146,7 +146,7 @@ test("the staged Accept/Reject buttons are declared and registered", async () =>
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")) as {
     contributes: { commands: { command: string; icon?: string }[]; menus: Record<string, { command: string; when?: string }[]> };
   };
-  const { STAGED_CONTEXT_KEY } = await import("../src/staged-review");
+  const { STAGED_CONTEXT_KEY } = await import("../src/ui/editor/staged-review");
 
   for (const id of ["review-hub.stagedAcceptAll", "review-hub.stagedRejectAll"]) {
     const declared = pkg.contributes.commands.find((c) => c.command === id);

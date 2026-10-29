@@ -4,6 +4,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.reviewhub.hub.HubManager
 
 class ClearCheckpointAction : AnAction() {
@@ -18,6 +19,7 @@ class ClearCheckpointAction : AnAction() {
             ApplicationManager.getApplication().invokeLater {
                 if (ok) {
                     hubManager.refresh()
+                    VirtualFileManager.getInstance().asyncRefresh(null)
                     Messages.showInfoMessage(project, "Checkpoint cleared.", "Review Hub")
                 } else {
                     Messages.showErrorDialog(project, "Failed to clear checkpoint.", "Review Hub")

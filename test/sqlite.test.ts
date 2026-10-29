@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { openDatabase } from "../src/sqlite";
+import { openDatabase } from "../src/core/sqlite";
 
 function dbFile(): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rh-sql-")), "hub.db");

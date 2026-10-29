@@ -22,7 +22,7 @@ data class MergedView(
 
 object MergedDiff {
     fun build(baselineText: String, hunks: List<Hunk>): MergedView {
-        val baseLines = baselineText.split("\n").map { it.trimEnd('\r') }
+        val baseLines = if (baselineText.isEmpty()) emptyList() else baselineText.split("\n").map { it.trimEnd('\r') }
         val lines = mutableListOf<String>()
         val blocks = mutableListOf<MergedBlock>()
 

@@ -8,11 +8,11 @@
  * per-hunk Accept/Reject CodeLens on the real file itself.
  */
 import * as vscode from "vscode";
-import type { ChangeStore } from "./change-store";
+import type { ChangeStore } from "../../core/change-store";
 import type { ChangeContentProvider } from "./content-provider";
-import { splitContent, diskFrame, resolveHunkRanges } from "./hunk-diff";
+import { splitContent, diskFrame, resolveHunkRanges } from "../../core/hunk-diff";
 import { buildStagedView, stagedCountTitle } from "./staged-content";
-import type { Hunk } from "./types";
+import type { Hunk } from "../../core/types";
 
 export class HunkCodeLensProvider implements vscode.CodeLensProvider {
   private emitter = new vscode.EventEmitter<void>();

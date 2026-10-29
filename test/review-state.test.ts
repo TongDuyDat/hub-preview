@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPanelState, buildReviewState, type PanelSource } from "../src/review-panel-state";
-import type { ChangeSet } from "../src/types";
+import { buildPanelState, buildReviewState, type PanelSource } from "../src/ui/webview/review-panel-state";
+import type { ChangeSet } from "../src/core/types";
 
 function changeSet(over: Partial<ChangeSet> = {}): ChangeSet {
   return {
