@@ -68,7 +68,7 @@ export class ChangeFileDecorationProvider implements vscode.FileDecorationProvid
         continue;
       }
       const rel = normFs.slice(root.length + 1);
-      const cs = this.store.findChangeByPath(root, rel);
+      const cs = this.store.findChangeByPath(ws, rel) ?? this.store.findChangeByPath(root, rel);
       if (cs) {
         return cs;
       }

@@ -11,6 +11,8 @@ import { STAGED_CONTEXT_KEY } from "../src/ui/editor/staged-review";
 // its own process, so it gets a private hub and a private ~/.review-hub.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "rh-staged-wiring-home-"));
 process.env.HOME = home;
+process.env.USERPROFILE = home;
+process.env.REVIEW_HUB_DIR = path.join(home, ".review-hub");
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), "rh-staged-wiring-ws-"));
 fs.writeFileSync(path.join(ws, "a.txt"), "one\ntwo\n");

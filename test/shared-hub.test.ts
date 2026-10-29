@@ -82,7 +82,7 @@ test("host election: first window wins, a live host is not stolen", async () => 
   const reg = createRegistry(baseDir);
 
   // A live host owned by a *different* process (pid 1 is always alive on Linux).
-  reg.writeEntry({ url: "http://127.0.0.1:1", token: "t1", pid: 1, workspace: "/a", updatedAt: Date.now(), protocol: 1 });
+  reg.writeEntry({ url: "http://127.0.0.1:1", token: "t1", pid: process.ppid, workspace: "/a", updatedAt: Date.now(), protocol: 1 });
 
   // Our window checks: a live host exists, so it must NOT take over.
   let becameHost = false;
@@ -121,8 +121,8 @@ test("one hub serves proposes for two different workspaces", async () => {
   const addr = await hub.start(0);
   const wsA = wsWithFile();
   const wsB = wsWithFile("b.txt", "alpha\nbeta\n");
-  hub.store.setCheckpoint(wsA, { maxFileSize: 1e9, excludeGlobs: [] });
-  hub.store.setCheckpoint(wsB, { maxFileSize: 1e9, excludeGlobs: [] });
+  await hub.store.setCheckpoint(wsA, { maxFileSize: 1e9, excludeGlobs: [] });
+  await hub.store.setCheckpoint(wsB, { maxFileSize: 1e9, excludeGlobs: [] });
 
   const call = async (p: string, body: unknown) => {
     const res = await fetch(addr.url + p, {

@@ -16,7 +16,7 @@ import { DEFAULT_EXCLUDES, DEFAULT_INCLUDE_EXTENSIONS, type ChangeStore } from "
 import { flushPendingReviews } from "./watcher/exit-flush";
 import { writeWindowState, clearWindowState, readWindowStates } from "./server/window-registry";
 import { buildAllPreviews, applyPreview } from "./harness/harness-register";
-import { installedServerPath, nodeCommand, type McpLaunch } from "./harness/harness-paths";
+import { installedServerPath, nodeCommand, type McpLaunch, npxLaunchSpec } from "./harness/harness-paths";
 import { reloadOpenEditors } from "./ui/editor/editor-sync";
 import { StagedReview, type StageNotice, type StagedHost } from "./ui/editor/staged-review";
 import { HUB_PROTOCOL, type ChangeSet, type FileNode } from "./core/types";
@@ -785,6 +785,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       refreshUi();
     }),
+    vscode.commands.registerCommand("review-hub.copyMcpConfig", async () => {
+      const config = {
+        mcpServers: {
+          "review-hub": {
+            command: "npx",
+            args: ["-y", "review-hub-mcp"]
+          }
+        }
+      };
+      await vscode.env.clipboard.writeText(JSON.stringify(config, null, 2));
+      void vscode.window.showInformationMessage("Review Hub: MCP config copied to clipboard! Paste it into ~/.claude.json, Cline, or Roo Code.");
+    }),
     vscode.commands.registerCommand("review-hub.registerMcp", () => registerMcp(baseDir, logger)),
     vscode.commands.registerCommand("review-hub.installInstructions", () => installInstructions()),
     vscode.commands.registerCommand("review-hub.showHubInfo", async () => {
@@ -939,11 +951,7 @@ function installMcpServer(context: vscode.ExtensionContext, baseDir: string, log
 }
 
 async function registerMcp(baseDir: string, logger: Logger): Promise<void> {
-  const launch: McpLaunch = {
-    command: nodeCommand(),
-    args: [installedServerPath(baseDir)],
-    env: {},
-  };
+  const launch: McpLaunch = npxLaunchSpec();
   const previews = buildAllPreviews(launch);
   const items = previews.map((p) => ({
     label: p.target.label,
@@ -991,6 +999,8 @@ async function installInstructions(): Promise<void> {
     "  **Use this instead of `edit`.**",
     "- `mcp__review_hub__propose_write` — create or replace a whole file (`path`, `content`).",
     "  **Use this instead of `write`.**",
+    "- `mcp__review_hub__propose_delete` — delete a file (`path`).",
+    "  **Use this instead of `rm`**.",
     "- `mcp__review_hub__read_file` — read a file (`path`).",
     "- `mcp__review_hub__list_changes` — list files changed since the last accepted checkpoint.",
     "- Review Hub **does not write your edit to disk until the user accepts it**. Reading the file",

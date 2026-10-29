@@ -8,6 +8,8 @@ import * as path from "node:path";
 // Point HOME at a temp dir so ~/.review-hub is sandboxed.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "rh-ext-home-"));
 process.env.HOME = home;
+process.env.USERPROFILE = home;
+process.env.REVIEW_HUB_DIR = path.join(home, ".review-hub");
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), "rh-ext-ws-"));
 fs.writeFileSync(path.join(ws, "a.txt"), "one\ntwo\n");

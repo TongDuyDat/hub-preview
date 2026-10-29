@@ -187,11 +187,33 @@ class HubManager(private val project: Project) : Disposable {
         }
     }
 
+    private fun ensureExtractedHubServer(): File? {
+        val home = System.getProperty("user.home") ?: return null
+        val target = Paths.get(home, ".review-hub", "bin", "hub-server.cjs").toFile()
+        if (target.exists() && target.length() > 0) {
+            return target
+        }
+        val stream = javaClass.getResourceAsStream("/server/hub-server.cjs") ?: return null
+        return try {
+            target.parentFile?.mkdirs()
+            target.outputStream().use { out ->
+                stream.copyTo(out)
+            }
+            target
+        } catch (e: Exception) {
+            logger.warn("Could not extract bundled hub-server.cjs", e)
+            null
+        }
+    }
+
     private fun trySpawnHub(): Boolean {
         val workspace = project.basePath ?: return false
         val home = System.getProperty("user.home")
 
+        val extracted = ensureExtractedHubServer()
+
         val candidates = listOfNotNull(
+            extracted,
             File(workspace, "dist/hub-server.cjs"),
             File(workspace, "../dist/hub-server.cjs"),
             File(workspace, "../hub-preview/dist/hub-server.cjs"),

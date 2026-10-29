@@ -104,6 +104,11 @@
       {
         "command": "review-hub.showHubInfo",
         "title": "Review Hub: Show Hub Info"
+      },
+      {
+        "command": "review-hub.copyMcpConfig",
+        "title": "Review Hub: Copy MCP Config for AI Tools",
+        "icon": "$(copy)"
       }
     ],
     "viewsContainers": {

@@ -92,7 +92,7 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
         continue;
       }
       const rel = normFs.slice(root.length + 1);
-      const cs = this.store.findChangeByPath(root, rel);
+      const cs = this.store.findChangeByPath(ws.uri.fsPath, rel) ?? this.store.findChangeByPath(root, rel);
       if (cs) {
         return cs;
       }
