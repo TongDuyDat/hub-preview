@@ -18,6 +18,6 @@ class ReviewHubNodeDecorator : ProjectViewNodeDecorator {
             PathUtil.pathsMatch(it.path, relPath) && it.status == "pending"
         } ?: return
 
-        data.addText(" [${change.pending} hunk(s)]", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
+        data.addText(" [${change.pending}]", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
     }
 }

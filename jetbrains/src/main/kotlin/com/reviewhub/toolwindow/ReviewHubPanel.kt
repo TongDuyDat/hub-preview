@@ -132,8 +132,28 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val vf = lfs.refreshAndFindFileByIoFile(file) ?: lfs.findFileByIoFile(file)
         if (vf != null) {
             FileEditorManager.getInstance(project).openFile(vf, true)
-        } else {
-            ReviewHubDiffViewer.showDiff(project, item)
+            return
+        }
+
+        // New file that does not exist on disk yet:
+        // Materialize it on disk with proposed content so it opens as a real file
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val client = hubManager.client ?: return@executeOnPooledThread
+            val content = client.getChange(item.id, basePath)?.proposed ?: ""
+            try {
+                file.parentFile?.mkdirs()
+                file.writeText(content)
+            } catch (_: Exception) {
+                return@executeOnPooledThread
+            }
+            ApplicationManager.getApplication().invokeLater {
+                if (project.isDisposed) return@invokeLater
+                val createdVf = lfs.refreshAndFindFileByIoFile(file)
+                if (createdVf != null) {
+                    FileEditorManager.getInstance(project).openFile(createdVf, true)
+                }
+                VirtualFileManager.getInstance().asyncRefresh(null)
+            }
         }
     }
 
@@ -274,7 +294,7 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
             statusLabel.icon = AllIcons.General.InspectionsOK
         } else {
             val totalHunks = list.sumOf { it.pending }
-            statusLabel.text = "${list.size} file(s), $totalHunks pending hunk(s)"
+            statusLabel.text = "${list.size} file(s), $totalHunks pending"
             statusLabel.icon = AllIcons.Actions.Diff
         }
     }

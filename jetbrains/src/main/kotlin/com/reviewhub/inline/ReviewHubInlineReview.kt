@@ -300,6 +300,19 @@ object ReviewHubInlineReview {
         }.sorted()
         editor.putUserData(HUNK_LINES_KEY, hunkLines)
 
+        // Automatically scroll to the first pending hunk if opened at top
+        if (hunkLines.isNotEmpty()) {
+            val firstLine = hunkLines.first()
+            val currentLine = editor.caretModel.logicalPosition.line
+            if (currentLine == 0) {
+                editor.caretModel.moveToLogicalPosition(com.intellij.openapi.editor.LogicalPosition(firstLine, 0))
+                editor.scrollingModel.scrollTo(com.intellij.openapi.editor.LogicalPosition(firstLine, 0), com.intellij.openapi.editor.ScrollType.CENTER)
+            }
+        }
+
+        // Add header bar with Up/Down navigation and Accept/Reject buttons
+        editor.headerComponent = createHeaderComponent(project, editor, changeId, workspace, relPath, hunkLines.size)
+
         // Attach mouse listener once to handle clicks and hover on "✓Accept | ✕Reject"
         attachMouseListeners(editor)
     }
@@ -447,6 +460,94 @@ object ReviewHubInlineReview {
         editor.scrollingModel.scrollTo(com.intellij.openapi.editor.LogicalPosition(target, 0), com.intellij.openapi.editor.ScrollType.CENTER)
     }
 
+    fun hasPendingHunks(editor: Editor): Boolean {
+        val lines = editor.getUserData(HUNK_LINES_KEY)
+        return !lines.isNullOrEmpty()
+    }
+
+    private fun createHeaderComponent(
+        project: Project,
+        editor: Editor,
+        changeId: String,
+        workspace: String,
+        relPath: String,
+        hunkCount: Int
+    ): javax.swing.JComponent {
+        val panel = javax.swing.JPanel(BorderLayout())
+        panel.border = javax.swing.border.EmptyBorder(3, 10, 3, 10)
+        panel.background = JBColor(Color(0xF0, 0xF4, 0xF8), Color(0x2B, 0x2D, 0x30))
+
+        val leftPanel = javax.swing.JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
+        leftPanel.isOpaque = false
+
+        val titleLabel = javax.swing.JLabel("Review Hub: $hunkCount pending")
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD)
+        leftPanel.add(titleLabel)
+
+        val prevBtn = javax.swing.JButton("↑ Prev", AllIcons.Actions.MoveUp)
+        prevBtn.isFocusable = false
+        prevBtn.addActionListener { scrollToPrevHunk(editor) }
+        leftPanel.add(prevBtn)
+
+        val nextBtn = javax.swing.JButton("↓ Next", AllIcons.Actions.MoveDown)
+        nextBtn.isFocusable = false
+        nextBtn.addActionListener { scrollToNextHunk(editor) }
+        leftPanel.add(nextBtn)
+
+        panel.add(leftPanel, BorderLayout.WEST)
+
+        val rightPanel = javax.swing.JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0))
+        rightPanel.isOpaque = false
+
+        val acceptAllBtn = javax.swing.JButton("Accept File", AllIcons.Actions.Checked)
+        acceptAllBtn.isFocusable = false
+        acceptAllBtn.addActionListener {
+            val hubManager = project.getService(HubManager::class.java)
+            val client = hubManager.client ?: return@addActionListener
+            ApplicationManager.getApplication().executeOnPooledThread {
+                client.accept(changeId = changeId, workspace = workspace)
+                hubManager.refresh()
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed) return@invokeLater
+                    val file = File(workspace, relPath)
+                    val vf = LocalFileSystem.getInstance().findFileByIoFile(file)
+                    if (vf != null && vf.isValid) {
+                        clearFileReview(project, vf)
+                    }
+                    VirtualFileManager.getInstance().asyncRefresh(null)
+                }
+            }
+        }
+        rightPanel.add(acceptAllBtn)
+
+        val rejectAllBtn = javax.swing.JButton("Reject File", AllIcons.Actions.Cancel)
+        rejectAllBtn.isFocusable = false
+        rejectAllBtn.addActionListener {
+            val hubManager = project.getService(HubManager::class.java)
+            val client = hubManager.client ?: return@addActionListener
+            ApplicationManager.getApplication().executeOnPooledThread {
+                client.reject(changeId = changeId, workspace = workspace)
+                hubManager.refresh()
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed) return@invokeLater
+                    val file = File(workspace, relPath)
+                    val vf = LocalFileSystem.getInstance().findFileByIoFile(file)
+                    if (vf != null && vf.isValid) {
+                        clearFileReview(project, vf)
+                        if (!file.exists()) {
+                            FileEditorManager.getInstance(project).closeFile(vf)
+                        }
+                    }
+                    VirtualFileManager.getInstance().asyncRefresh(null)
+                }
+            }
+        }
+        rightPanel.add(rejectAllBtn)
+
+        panel.add(rightPanel, BorderLayout.EAST)
+        return panel
+    }
+
     private fun decideHunk(
         project: Project,
         changeId: String,
@@ -473,11 +574,15 @@ object ReviewHubInlineReview {
                 val file = File(workspace, relPath)
                 val vf = LocalFileSystem.getInstance().findFileByIoFile(file)
                 if (vf != null && vf.isValid) {
-                    reloadDocumentFromDisk(project, vf)
-                    val editors = FileEditorManager.getInstance(project).getEditors(vf)
-                    for (e in editors) {
-                        if (e is TextEditor && !e.editor.isDisposed) {
-                            updateInlays(project, e.editor, relPath)
+                    if (!file.exists()) {
+                        FileEditorManager.getInstance(project).closeFile(vf)
+                    } else {
+                        reloadDocumentFromDisk(project, vf)
+                        val editors = FileEditorManager.getInstance(project).getEditors(vf)
+                        for (e in editors) {
+                            if (e is TextEditor && !e.editor.isDisposed) {
+                                updateInlays(project, e.editor, relPath)
+                            }
                         }
                     }
                 }

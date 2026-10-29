@@ -52,7 +52,7 @@ class ReviewHubHeaderBar(
         leftPanel.add(logoLabel)
 
         if (pendingFiles.size > 1) {
-            val fileChoices = pendingFiles.map { "${it.path} (${it.pending} hunks)" }.toTypedArray()
+            val fileChoices = pendingFiles.map { "${it.path} (${it.pending})" }.toTypedArray()
             val combo = JComboBox(fileChoices).apply {
                 selectedIndex = if (fileIndex >= 0) fileIndex else 0
                 isFocusable = false
@@ -77,7 +77,7 @@ class ReviewHubHeaderBar(
         }
 
         val hunksPending = currentChange?.pending ?: 0
-        val hunksLabel = JBLabel("•  $hunksPending pending hunk(s)").apply {
+        val hunksLabel = JBLabel("•  $hunksPending pending").apply {
             foreground = JBColor(Color(0x57, 0x60, 0x6A), Color(0x8B, 0x94, 0x9E))
         }
         leftPanel.add(hunksLabel)
@@ -105,7 +105,7 @@ class ReviewHubHeaderBar(
         }
 
         if (hunksPending > 1) {
-            val nextHunkBtn = createButton("▼ Next Hunk", null) {
+            val nextHunkBtn = createButton("▼ Next", null) {
                 ReviewHubInlineReview.scrollToNextHunk(editor)
             }
             rightPanel.add(nextHunkBtn)
