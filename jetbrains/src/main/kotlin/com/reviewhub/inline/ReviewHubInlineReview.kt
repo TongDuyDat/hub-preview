@@ -200,8 +200,8 @@ object ReviewHubInlineReview {
             editor.putUserData(STAGED_HASH_KEY, currentHash)
         }
 
-        // Set Antigravity-style top header bar
-        editor.headerComponent = ReviewHubHeaderBar(project, editor, relPath)
+        // Do not clutter editor with top header bar; changed files are listed in Review Hub ToolWindow
+        editor.headerComponent = null
 
         // Clean up previous highlighters and inlays
         val existingHighlighters = editor.getUserData(HIGHLIGHTERS_KEY)

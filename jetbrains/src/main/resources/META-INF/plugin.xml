@@ -19,6 +19,7 @@
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <notificationGroup id="Review Hub" displayType="BALLOON" isLogByDefault="true"/>
         <toolWindow id="Review Hub"
                     secondary="true"
                     icon="/icons/reviewHub.svg"
