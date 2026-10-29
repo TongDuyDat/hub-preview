@@ -1,442 +1,254 @@
-# Review Hub for VS Code
+# Review Hub (VS Code & JetBrains IDEs)
 
-Xem **chính xác** AI coding agent đã đổi gì trong project của bạn — **bất kể agent chạy ở
-chế độ quyền nào** — và duyệt/từ chối **từng khối (hunk) một**, kiểu hunkwise.
+Xem **chính xác** AI coding agent đã đổi gì trong project của bạn — **bất kể agent chạy ở chế độ quyền nào** — và duyệt/từ chối **từng khối (hunk) một**, kiểu hunkwise.
 
-Hỗ trợ **Claude Code, opencode, dsh (deepseek-harness), Cline, Roo Code** qua MCP, và vẫn bắt
-được cả những agent không dùng MCP mà ghi thẳng vào file.
+Hỗ trợ đồng thời cả **Visual Studio Code** và **JetBrains IDEs** (IntelliJ IDEA, WebStorm, PyCharm, CLion, GoLand, Android Studio, PhpStorm, Rider, RustRover...).
 
-> **Điểm cốt lõi:** Review Hub **không ghi gì lên đĩa khi agent đề xuất thay đổi**. Thay đổi
-> được giữ lại kèm diff, và **chỉ những hunk bạn bấm ✓ mới thực sự được ghi xuống đĩa**.
+Tương thích với các AI Agent phổ biến: **Claude Code, opencode, dsh (deepseek-harness), Cline, Roo Code** qua giao thức MCP, và vẫn bắt được cả những agent không dùng MCP mà ghi thẳng vào file.
+
+> **Điểm cốt lõi:** Review Hub **không ghi gì lên đĩa khi agent đề xuất thay đổi** (Review-then-Apply qua MCP). Thay đổi được giữ lại trong bộ nhớ đệm kèm diff, và **chỉ những hunk bạn bấm ✓ mới thực sự được ghi xuống đĩa**. Đối với các lệnh ghi đè trực tiếp (Direct Writes), hệ thống tự động bắt thay đổi và cho phép hoàn tác (Undo/Revert) từng khối về bản gốc (baseline).
 
 ---
 
 ## Mục lục
 
-1. [Vấn đề nó giải quyết](#1-vấn-đề-nó-giải-quyết)
-2. [Cách hoạt động: xem trước rồi mới ghi](#2-cách-hoạt-động-xem-trước-rồi-mới-ghi)
-3. [Hai bề mặt giao diện](#3-hai-bề-mặt-giao-diện)
-4. [Yêu cầu](#4-yêu-cầu)
-5. [Cài đặt](#5-cài-đặt)
-6. [Hướng dẫn sử dụng](#6-hướng-dẫn-sử-dụng)
-7. [Phát hiện thay đổi — hoạt động cả nơi inotify "tịt"](#7-phát-hiện-thay-đổi--hoạt-động-cả-nơi-inotify-tịt)
-8. [Danh sách lệnh](#8-danh-sách-lệnh)
-9. [MCP tools cho agent](#9-mcp-tools-cho-agent)
-10. [Cài đặt (Settings)](#10-cài-đặt-settings)
-11. [Lưu trữ](#11-lưu-trữ)
-12. [Ghi chú thiết kế](#12-ghi-chú-thiết-kế)
-13. [Xử lý sự cố](#13-xử-lý-sự-cố)
-14. [Phát triển](#14-phát-triển)
-15. [Inline staged review (kiểu Antigravity)](#15-inline-staged-review-kiểu-antigravity)
+1. [Kiến trúc tổng quan](#1-kiến-trúc-tổng-quan)
+2. [Vấn đề giải quyết](#2-vấn-đề-giải-quyết)
+3. [Cài đặt & Khởi động](#3-cài-đặt--khởi-động)
+   - [3.1. Dành cho VS Code](#31-dành-cho-vs-code)
+   - [3.2. Dành cho JetBrains IDEs](#32-dành-cho-jetbrains-ides)
+4. [Bề mặt giao diện](#4-bề-mặt-giao-diện)
+   - [Giao diện trên VS Code](#giao-diện-trên-vs-code)
+   - [Giao diện trên JetBrains IDEs](#giao-diện-trên-jetbrains-ides)
+5. [MCP Tools cho AI Agent](#5-mcp-tools-cho-ai-agent)
+6. [Cấu trúc mã nguồn Repository](#6-cấu-trúc-mã-nguồn-repository)
+7. [Hướng dẫn phát triển (Development & Build)](#7-hướng-dẫn-phát-triển-development--build)
+8. [Cơ chế lưu trữ & Snapshot](#8-cơ-chế-lưu-trữ--snapshot)
+9. [Xử lý sự cố (Troubleshooting)](#9-xử-lý-sự-cố-troubleshooting)
 
 ---
 
-## 1. Vấn đề nó giải quyết
+## 1. Kiến trúc tổng quan
 
-Khi agent chạy ở chế độ tự động duyệt (Claude Code `acceptEdits`, Cline auto-approve, dsh,
-opencode), nó ghi thẳng xuống đĩa và **không cho bạn thấy gì cả**. Còn khi nó có hiện diff thì
-diff đó biến mất ngay sau khi bạn accept — không có danh sách "từ lần trước tới giờ đã đổi
-những gì".
+Review Hub hoạt động theo mô hình **Shared Hub Architecture** (kiến trúc tập trung):
+
+```text
+[Claude Code / Cline / Roo / opencode / dsh]
+                │
+                │ stdio (MCP Protocol)
+                ▼
+        [MCP Server (mcp-server.cjs)]
+                │
+                │ HTTP REST (127.0.0.1:<random_port>)
+                ▼
+    ┌───────────────────────────┐
+    │     Review Hub Server     │  Discovery: ~/.review-hub/hub.json
+    │   (SQLite Store Engine)   │  Database: ~/.review-hub/hub.db
+    └─────────────┬─────────────┘
+                  ▲
+      ┌───────────┴───────────┐
+      │                       │
+[VS Code Extension]     [JetBrains Plugin]
+  ├── Sidebar Webview     ├── ToolWindow Panel
+  ├── Inline Diff View    ├── Native Diff Viewer
+  └── Explorer Badges     └── Project Tree Badges
+```
+
+- **Hub Server**: Đóng vai trò là single source of truth, quản lý database SQLite, tính toán hunk diff và lưu trữ baseline. Hub có thể được host bởi VS Code extension hoặc chạy daemon độc lập.
+- **MCP Server (`mcp-server.cjs`)**: Process mỏng kết nối qua stdio với các AI harness, chuyển tiếp các lệnh đề xuất sửa file (`propose_edit`, `propose_write`, `propose_delete`) về Hub Server.
+- **IDE Clients (VS Code & JetBrains)**: Kết nối tới Hub Server qua REST API (xác thực bằng Bearer token được tạo ngẫu nhiên lưu tại `~/.review-hub/hub.json`). Cả 2 IDE có thể mở cùng lúc và dùng chung một phiên review.
+
+---
+
+## 2. Vấn đề giải quyết
+
+Khi agent chạy ở chế độ tự động duyệt (Claude Code `acceptEdits`, Cline auto-approve, dsh, opencode), nó ghi thẳng xuống đĩa và **không cho bạn thấy gì cả**. Còn khi nó có hiện diff thì diff đó biến mất ngay sau khi bạn accept — không có danh sách "từ lần trước tới giờ đã đổi những gì".
 
 Review Hub giải quyết cả hai bằng cách nằm **bên dưới** agent, ở tầng filesystem:
 
 | Cơ chế | Tác dụng |
 |---|---|
-| **MCP server "staging"** | Agent gọi nó thay vì sửa file trực tiếp → thay đổi chờ bạn duyệt |
-| **File watcher** | Vẫn bắt được các lệnh ghi file trực tiếp → không thay đổi nào bị ẩn |
+| **MCP server "staging"** | Agent gọi nó thay vì sửa file trực tiếp → thay đổi chờ bạn duyệt, không ghi lên đĩa |
+| **File watcher** | Bắt kịp thời các lệnh ghi file trực tiếp từ FS → cho phép revert từng khối |
 
----
-
-## 2. Cách hoạt động: xem trước rồi mới ghi
-
-```
- harness (Claude Code / opencode / dsh / Cline / Roo)
-        │  spawn qua stdio
-        ▼
- mcp-server.cjs  ──HTTP + bearer token──▶  Review Hub (extension này)
-        │                                        │
-        │                                  Change Store  (~/.review-hub)
-        │                                        │
-   stage các thay đổi                     Panel sidebar + tab review
-                                          accept / reject theo từng hunk
-```
-
-1. Khi kích hoạt, extension mở một hub cục bộ (`127.0.0.1`, port ngẫu nhiên, kèm bearer token)
-   và ghi thông tin ra `~/.review-hub/hub.json`.
-2. **Baseline** của một file lấy từ git HEAD, hoặc được chụp lại ở lần đầu file đó thay đổi.
-3. Agent gọi `propose_edit` / `propose_write` → thay đổi được **lưu lại kèm diff để chờ duyệt**,
-   **không ghi gì lên đĩa**.
-4. File đã đổi có **badge trong Explorer** (`M`/`A`/`D`, có màu, kèm dấu chấm ở folder cha) và
-   một dòng trong panel **Review Hub** → biết file nào đổi mà không cần mở gì cả. Không có cửa
-   sổ nào tự bật lên.
-5. Click vào dòng trong panel để mở **tab review**: mỗi hunk hiện dòng cũ (nền đỏ) ngay trên
-   dòng mới (nền xanh), kèm nút **✓** / **↺** cho từng hunk. Thấy code cũ và mới cùng lúc.
-6. Bấm **✓** một hunk → đúng các dòng mới của hunk đó được ghi lên đĩa. Bấm **↺** → không ghi
-   gì, giữ nguyên dòng gốc.
-
-Bảng trạng thái đĩa tương ứng:
-
+### Bảng trạng thái đĩa:
 | Hành động | Trên đĩa sau đó |
 |---|---|
-| Agent đề xuất (`propose_edit`) | **không đổi** — vẫn là bản gốc |
-| Bạn bấm ✓ một hunk | đúng các dòng mới của hunk đó |
-| Bạn bấm ↺ một hunk | không ghi gì (giữ dòng gốc) |
-| Hunk chưa quyết định | không có trên đĩa |
-
-> **Hệ quả cần nhớ:** nếu agent tự đọc file bằng công cụ riêng của nó, nó sẽ thấy **nội dung
-> cũ**. Đó là đúng thiết kế, không phải lỗi. Agent nên đọc qua công cụ `read_file` của Review
-> Hub để thấy bản đã đề xuất.
-
-### Quyết định ở mức "khối", không phải cả file
-
-Mọi quyết định đều ở mức **change block (hunk)**, không bao giờ ở mức cả file:
-
-- **Accept** một block → chỉ giữ các dòng mới của block đó.
-- **Reject** một block → chỉ khôi phục block đó về baseline.
-- Các block khác không bị ảnh hưởng và vẫn ở trạng thái chờ duyệt.
-
-Ví dụ với 3 block A, B, C:
-
-```
-A → accept   ⇒  A: đã áp dụng
-B → (bỏ qua) ⇒  B: vẫn chờ duyệt
-C → reject   ⇒  C: đã hoàn nguyên
-```
-
-File **vẫn giữ badge** cho tới khi B cũng được quyết định.
+| Agent đề xuất (`propose_edit`) | **Không đổi** — vẫn là bản gốc |
+| Bạn bấm ✓ một hunk | Đúng các dòng mới của hunk đó được ghi vào file |
+| Bạn bấm ↺ một hunk | Không ghi gì (giữ nguyên dòng gốc) |
+| Hunk chưa quyết định | Không có trên đĩa |
 
 ---
 
-## 3. Hai bề mặt giao diện
+## 3. Cài đặt & Khởi động
 
-- **Panel ở sidebar** (biểu tượng Review Hub trên thanh hoạt động): danh sách file kèm
-  `+thêm −bớt`, mở ra xem từng hunk `@line N`, mỗi hunk có ✓ / ↺, kèm nút cấp file và cấp
-  toàn bộ. Kiểu bố cục của [hunkwise](https://github.com/molon/hunkwise).
-- **Tab review**: cửa sổ diff đầy đủ — dòng bị xoá hiển thị **nền đỏ**, dòng thêm vào hiển
-  thị **nền xanh**, mỗi hunk có thanh quyết định riêng. Đây là nơi duy nhất hiển thị được
-  khối đỏ nhiều dòng: API ổn định của VS Code không cho phép vẽ nhiều dòng chèn vào buffer
-  thật (xem `docs/superpowers/specs/2026-10-07-hunkwise-ui-and-sqlite-store-design.md` §2.1).
+### 3.1. Dành cho VS Code
 
-Ngoài ra, **file thật** cũng có highlight inline (xanh cho dòng mới, đỏ cho dòng bị hoàn
-nguyên, chữ đã xoá hiện dạng ghost text) kèm nút Accept/Reject, để bạn duyệt ngay tại chỗ.
-Khi cần chế độ 2 cột cổ điển, dùng **Review Hub: Open Side-by-Side Diff**.
+Yêu cầu: **VS Code 1.103.0 trở lên** (Node 22 runtime tích hợp).
 
----
+- **Cài đặt từ file VSIX:**
+  ```bash
+  code --install-extension review-hub-vscode-0.2.0.vsix
+  ```
+- **Tự động cấu hình MCP cho các AI Harness:**
+  Mở Command Palette (`Ctrl+Shift+P`) → Chạy `Review Hub: Register MCP in all harnesses`. Lệnh này sẽ tự động thêm cấu hình Review Hub vào Claude Code, Cline, Roo Code, opencode,...
+- **Hướng dẫn cho Agent:**
+  Chạy lệnh `Review Hub: Install agent instructions` để extension tự chèn hướng dẫn sử dụng MCP tool vào `CLAUDE.md`, `.cursorrules`,...
 
-## 4. Yêu cầu
+### 3.2. Dành cho JetBrains IDEs
 
-- **VS Code 1.103.0 trở lên.** Bản 1.85–1.102 dùng Electron cũ thiếu binding `node:sqlite`
-  (lỗi đã được sửa ở Electron 37.2.3). Nếu không có SQLite, extension tự động chuyển sang
-  kho JSON trong `~/.review-hub/workspaces/` — không hỏng, chỉ chậm hơn.
-- Node 22.13+ trong extension host (đi kèm VS Code 1.103+).
-- Khuyến nghị: project nằm trong **git repo** để baseline lấy được từ `git show HEAD:<path>`
-  (rẻ và chính xác). Workspace không phải git vẫn dùng được, chỉ khác cách lấy baseline.
+Tương thích: **IntelliJ IDEA (Community & Ultimate), PyCharm, WebStorm, CLion, GoLand, Android Studio, PhpStorm, Rider, RustRover,...** (Platform 2024.1+ / Build 241+).
 
----
-
-## 5. Cài đặt
-
-### 5.1. Cài extension
-
-**Cách A — cài từ file `.vsix` (dùng để thử):**
-
-```bash
-code --install-extension review-hub-vscode-0.2.0.vsix
-```
-
-Hoặc trong VS Code: mở **Extensions** (`Ctrl+Shift+X`) → menu `⋯` → **Install from VSIX…**
-→ chọn file `.vsix`.
-
-**Cách B — build từ source:**
-
-```bash
-cd review-hub-vscode
-npm install
-npm run build            # bundle dist/extension.js và dist/mcp-server.cjs
-npm run package          # tạo review-hub-vscode-<version>.vsix
-code --install-extension review-hub-vscode-*.vsix
-```
-
-Sau khi cài, **reload cửa sổ** (`Ctrl+Shift+P` → `Developer: Reload Window`). Biểu tượng
-**Review Hub** sẽ xuất hiện trên thanh hoạt động bên trái.
-
-> **Lưu ý:** nên build trên filesystem Linux native. Trên mount WSL `/mnt/*` (9p), `npm install`
-> chạy song song có thể ghi đè làm hỏng file.
-
-### 5.2. Bật lên (làm 1 lần cho mỗi máy/harness)
-
-Mở **Command Palette** (`Ctrl+Shift+P`) và chạy:
-
-1. **`Review Hub: Register MCP in all harnesses`**
-   → chọn những harness bạn dùng. Extension ghi entry MCP vào config của từng harness
-   (**có backup** trước khi sửa) và trỏ vào bản copy cố định `~/.review-hub/bin/mcp-server.cjs`.
-
-2. **`Review Hub: Install agent instructions`**
-   → thêm khối `<!-- review-hub:start -->…<!-- review-hub:end -->` vào `AGENTS.md` / `CLAUDE.md`
-   của workspace, dạy agent ưu tiên gọi `propose_*` thay vì sửa file trực tiếp.
-
-3. **Khởi động lại từng harness** (đóng và mở lại Claude Code / opencode / dsh / Cline / Roo)
-   để nó nạp MCP server mới.
-
-Kiểm tra nhanh: chạy **`Review Hub: Show Hub Info`** → hiện hub URL, PID và đường dẫn MCP
-server. Nếu thấy thông tin tức là hub đang chạy.
+- **Cài đặt từ file ZIP:**
+  1. Vào menu **Settings/Preferences** (`Ctrl+Alt+S`) → **Plugins**.
+  2. Bấm biểu tượng ⚙️ (bánh răng) → Chọn **Install Plugin from Disk...**.
+  3. Chọn file `review-hub-jetbrains-0.2.0.zip` (hoặc build từ `jetbrains/build/distributions/`).
+  4. Khởi động lại IDE khi được yêu cầu.
+- **Tự khởi động Hub:**
+  Khi mở JetBrains IDE mà không mở VS Code, plugin sẽ tự động phát hiện và khởi chạy `hub-server.cjs` dưới nền.
 
 ---
 
-## 6. Hướng dẫn sử dụng
+## 4. Bề mặt giao diện
 
-### 6.1. Vòng làm việc hằng ngày
+### Giao diện trên VS Code
 
-```
-Agent sửa file  →  badge hiện trong Explorer + dòng trong panel Review Hub
-                →  bạn click vào file, xem từng hunk
-                →  Accept / Reject từng hunk
-                →  hết thay đổi thì file mất badge
-```
+1. **Sidebar Panel** (biểu tượng Review Hub trên Activity Bar):
+   - Danh sách các file thay đổi gom nhóm theo workspace, kèm thống kê `+thêm −bớt`.
+   - Nút **Accept All**, **Discard All**, **Set Checkpoint**.
+   - Cây thư mục mở rộng xem chi tiết từng hunk `@line N` kèm nút thao tác trực tiếp.
+2. **Review Tab (Webview Diff)**:
+   - Hiển thị diff 2 màu trực quan: Dòng xóa nền đỏ, dòng thêm nền xanh.
+   - Thanh HunkBar riêng cho từng khối: Badge trạng thái tĩnh `✓ accepted` / `✗ rejected` và nút `↺ Undo`.
+   - Hỗ trợ cuộn mượt và highlight khối khi click từ Sidebar.
+3. **In-Editor Inline Highlighting & CodeLens**:
+   - Highlight trực tiếp trên file thật đang mở trong editor.
+   - Hiển thị nút CodeLens `✓ Accept` / `✗ Reject` ngay trên đầu từng hunk.
+   - Badge `M` / `A` / `D` trên File Explorer với cơ chế lan truyền dấu chấm lên thư mục cha.
 
-### 6.2. Duyệt trong panel sidebar (cách chính)
+### Giao diện trên JetBrains IDEs
 
-1. Click biểu tượng **Review Hub** trên thanh hoạt động.
-2. Panel hiện tổng quan: `N files`, `+thêm −bớt`, và các nút **✓ Accept All** / **↺ Discard
-   All** / **⟳ Set checkpoint** ở trên cùng.
-3. Mỗi file là một dòng: tên file, `+thêm −bớt`, badge `new` / `deleted` / `binary` nếu có,
-   và hai nút **✓** (accept cả file) / **↺** (reject cả file).
-4. Click vào tên file (hoặc twisty `▾`) để **mở rộng** danh sách hunk. Mỗi hunk hiện
-   `@line N`, `+thêm −bớt`, và cặp nút **✓** / **↺**.
-5. Bấm **✓** để accept hunk đó (ghi dòng mới lên đĩa), **↺** để reject (giữ dòng gốc).
-   Sau khi quyết định, hunk hiện badge `✓ accepted` / `✗ rejected` kèm nút đảo ngược quyết định.
-6. Có nhiều project cùng mở? Panel nhóm theo workspace, mỗi nhóm có tiêu đề riêng.
-
-### 6.3. Duyệt trong tab review (diff đầy đủ, thấy cả dòng xoá nhiều dòng)
-
-1. Click vào tên file trong panel (hoặc nút **Open Diff**), hoặc chạy
-   **`Review Hub: Open Diff`**.
-2. Tab review hiện toàn bộ diff: **dòng bị xoá nền đỏ**, **dòng thêm nền xanh**, xen kẽ dòng
-   context.
-3. Trước mỗi hunk có thanh quyết định: `+thêm −bớt · trạng thái` cùng nút **✓ Accept** /
-   **↺ Reject**. Đã quyết định thì nút đổi thành **✓ Accepted** / **✗ Rejected** để bấm đảo lại.
-4. Trên cùng tab có **✓ Accept All** / **↺ Discard All** cho cả file.
-
-Mỗi file mở một tab riêng; mở lại cùng file sẽ focus tab đang có thay vì tạo tab mới.
-
-### 6.4. Duyệt ngay trên file thật (inline)
-
-Mở file thật (badge trong Explorer hoặc **`Review Hub: Open File`**). Bạn sẽ thấy:
-
-- Dòng mới của hunk đã accept: highlight **xanh**.
-- Dòng bị hoàn nguyên: highlight **đỏ**.
-- Phần chữ đã bị xoá: hiện dạng **ghost text** (chữ mờ sau dòng), kèm gợi ý `⊕ +N more added`
-  khi hunk chèn nhiều dòng.
-- CodeLens **Accept / Reject** ngay trên hunk để duyệt tại chỗ.
-
-### 6.5. Diff 2 cột cổ điển
-
-Chạy **`Review Hub: Open Side-by-Side Diff`** (hoặc chuột phải file trong Explorer) để mở diff
-`baseline | đề xuất` theo kiểu editor gốc của VS Code.
-
-### 6.6. Checkpoint — mốc để đo "đã đổi gì"
-
-Baseline là mốc so sánh. Bạn có thể đặt lại mốc:
-
-- **`Review Hub: Set Checkpoint`** — chấp nhận trạng thái hiện tại làm baseline mới (mọi thay
-  đổi đang chờ biến mất khỏi danh sách). Dùng khi bạn muốn "chốt" một trạng thái sạch.
-- **`Review Hub: Clear Checkpoint`** — xoá checkpoint hiện tại.
-
-Từ đó về sau, mọi thay đổi được đo so với mốc này.
-
-### 6.7. Xử lý agent **không** dùng MCP
-
-Nếu agent bỏ qua MCP và ghi thẳng xuống đĩa (ví dụ chạy ở chế độ auto-approve mà không đọc
-hướng dẫn), **file watcher** vẫn bắt được: file hiện badge và một dòng trong panel như bình
-thường, và bạn vẫn duyệt được theo hunk. Đây là cơ chế "lưới an toàn" — bật/tắt bằng setting
-`review-hub.watchDirectWrites`.
-
-> Trong luồng watcher, agent **đã** ghi vào đĩa rồi, nên trạng thái mặc định là "đã có trên
-> đĩa"; hunk chưa quyết định được coi là đang tồn tại trên đĩa cho tới khi bạn reject.
-
-### 6.8. Phím tắt / thao tác nhanh
-
-- `Ctrl+Shift+P` → gõ `Review Hub` để thấy mọi lệnh.
-- Chuột phải file trong Explorer → nhóm **Review Hub** (`Open Diff`, `Open Side-by-Side`,
-  `Accept File`, `Reject File`).
-- Thanh tiêu đề panel có sẵn: Set Checkpoint, Accept All, Reject All, Refresh.
+1. **ToolWindow "Review Hub"** (sidebar góc phải/dưới):
+   - Danh sách file đang chờ review kèm số lượng hunk và thống kê dòng.
+   - Toolbar với các nút thao tác nhanh: Accept All, Reject All, Set Checkpoint, Refresh.
+2. **Native Diff Viewer**:
+   - Tận dụng trình xem Diff gốc mạnh mẽ (`DiffManager`) của JetBrains.
+   - So sánh trực tiếp từ bộ nhớ RAM (`Baseline RAM` vs `Proposed RAM`), không cần tạo file tạm trên đĩa.
+3. **Project View Decoration**:
+   - Tự động đổi màu tên file đang có thay đổi cần duyệt trên Project Tree.
+   - Gắn badge `[X hunk(s)]` bên cạnh tên file.
 
 ---
 
-## 7. Phát hiện thay đổi — hoạt động cả nơi inotify "tịt"
+## 5. MCP Tools cho AI Agent
 
-Hệ thống dùng **3 cơ chế** để không phụ thuộc vào việc filesystem có bắn event hay không:
+Khi tích hợp với AI harness qua MCP, agent sẽ có các tools sau:
 
-1. **File watcher của VS Code** — tức thời, ở nơi inotify hoạt động.
-2. **Poll `git status`** — đọc trực tiếp index, nên chạy được trên mount WSL 9p (ổ Windows dưới
-   `/mnt` hoặc `/home/<user>/Work`) — nơi inotify không bao giờ bắn.
-3. **Quét thư mục có giới hạn** — dùng cho workspace không phải git repo.
-
-Polling được giới hạn phạm vi để luôn rẻ:
-
-- Chỉ chạy **ở nơi cần thiết** — trên filesystem có watcher native hoạt động (mọi thứ trừ 9p),
-  polling chỉ còn là lưới an toàn định kỳ.
-- **Tạm dừng khi cửa sổ không được focus** và chạy một lần khi focus lại → mở nhiều cửa sổ
-  không nhân chi phí lên.
-- Khi quét, cắt bỏ các thư mục bị loại trừ (`node_modules`, `.git`, `dist`, …) **trước khi** đi
-  sâu vào, và nạp baseline cho cả lượt quét bằng **một** lần ghi checkpoint thay vì mỗi file một lần.
-- Phép dò `git` work-tree được memoize → vòng poll không spawn process mỗi tick.
-
-Kết quả: repo lớn nằm yên rất êm, mà vẫn không bỏ sót thay đổi nào.
-
----
-
-## 8. Danh sách lệnh
-
-| Lệnh | Tác dụng |
-|---|---|
-| **Set Checkpoint** | Chấp nhận trạng thái hiện tại làm baseline mới |
-| **Clear Checkpoint** | Xoá checkpoint hiện tại |
-| **Show Changes** | Mở/focus view Changes |
-| **Refresh** | Làm mới danh sách thay đổi |
-| **Open Diff** | Mở tab review (cũ + mới) cho một file |
-| **Open Side-by-Side Diff** | Mở diff 2 cột cổ điển: baseline vs đề xuất |
-| **Open File (new content)** | Mở file thật trên đĩa để sửa trực tiếp |
-| **Accept Hunk** / **Reject Hunk** | Duyệt/từ chối một khối |
-| **Accept File** / **Reject File** | Duyệt/từ chối toàn bộ file |
-| **Undo File** | Reject mọi hunk trong file đang chọn |
-| **Accept All Changes** / **Reject All Changes** | Xử lý mọi thay đổi ở mọi project |
-| **Register MCP in all harnesses** | Ghi entry MCP vào config từng harness (có backup) |
-| **Install agent instructions** | Thêm khối Review Hub vào `AGENTS.md` / `CLAUDE.md` |
-| **Show Hub Info** | Hiện hub URL, PID và đường dẫn MCP server |
-
----
-
-## 9. MCP tools cho agent
-
-| Tool | Mục đích |
-|---|---|
-| `propose_edit` | Stage một sửa đổi `old_string` → `new_string` (giống tool Edit gốc) |
-| `propose_write` | Stage việc ghi toàn bộ file |
-| `read_file` | Đọc file trong workspace qua hub (thấy cả nội dung đã stage) |
-| `list_changes` | Liệt kê các file đã đổi kể từ checkpoint cuối |
-| `accept` / `reject` | Duyệt/từ chối toàn bộ hoặc một số hunk cụ thể |
-| `set_checkpoint` | Đẩy baseline lên trạng thái hiện tại |
-
-`propose_*` trả về `status: "staged_for_review"` kèm `changeId`. Đó là **thành công**, không
-phải lỗi — agent không nên retry bằng tool khác.
-
----
-
-## 10. Cài đặt (Settings)
-
-| Setting | Mặc định | Ý nghĩa |
+| Tool | Mô tả | Tham số |
 |---|---|---|
-| `review-hub.enabled` | `true` | Bật/tắt hub. Tắt thì server không chạy và watcher bị vô hiệu. |
-| `review-hub.watchDirectWrites` | `true` | Bắt agent ghi file trực tiếp (cơ chế dự phòng khi agent bỏ qua MCP). |
-| `review-hub.autoOpenDiff` | `false` | Tự mở tab review ngay khi agent sửa file. Mặc định tắt để không làm gián đoạn. |
-| `review-hub.ignoreWhitespace` | `false` | Bỏ qua thay đổi chỉ khác khoảng trắng. |
-| `review-hub.maxFileSize` | `2097152` (2 MB) | File lớn hơn mức này chỉ accept/reject cả file, không tách hunk. |
-| `review-hub.excludeGlobs` | `[]` | Glob bổ sung mà watcher bỏ qua (danh sách mặc định luôn được áp dụng). |
-| `review-hub.maxSnapshotFiles` | `5000` | Giới hạn số file một lần snapshot checkpoint đọc. |
+| `propose_edit` | Đề xuất sửa một đoạn trong file (thay thế công cụ `Edit` native) | `path`, `old_string`, `new_string`, `replace_all?` |
+| `propose_write` | Đề xuất tạo mới hoặc ghi đè toàn bộ file | `path`, `content` |
+| `propose_delete` | Đề xuất xóa file (chờ người dùng duyệt) | `path` |
+| `read_file` | Đọc file qua Hub (trả về nội dung đang được staged) | `path` |
+| `list_changes` | Liệt kê toàn bộ file và hunks đang chờ duyệt | `workspace?`, `path?` |
+| `accept` | Chấp nhận toàn bộ hoặc một số hunk theo ID | `changeId?`, `path?`, `hunkIds?` |
+| `reject` | Từ chối và khôi phục baseline cho các hunk | `changeId?`, `path?`, `hunkIds?` |
+| `set_checkpoint` | Đánh dấu trạng thái hiện tại trên đĩa là bản gốc mới | `workspace?`, `path?` |
 
 ---
 
-## 11. Lưu trữ
+## 6. Cấu trúc mã nguồn Repository
 
-Tất cả nằm dưới `~/.review-hub/`:
-
+```text
+hub-preview/
+├── src/                        # Mã nguồn VS Code Extension & Shared Logic
+│   ├── core/                   # Logic lõi độc lập: Diff, SQLite, Snapshot, Types
+│   │   ├── change-store.ts     # SQLite store & quản lý change sets
+│   │   ├── hunk-diff.ts        # Thuật toán phân tích diff & hunk
+│   │   ├── merged-diff.ts      # Ghép nội dung old + new
+│   │   ├── sqlite.ts           # Wrapper giao tiếp SQLite
+│   │   └── types.ts            # DTOs & Hub protocol
+│   ├── server/                 # Hub HTTP Server & Process Registry
+│   │   ├── hub-server.ts       # REST API endpoints cho MCP và IDE
+│   │   ├── registry.ts         # Atomic lock & hub.json discovery
+│   │   └── window-registry.ts  # Quản lý đa cửa sổ
+│   ├── harness/                # Cấu hình tự động cho AI Agent (Claude, Cline, Roo...)
+│   │   ├── harness-paths.ts    # Định vị file settings theo OS
+│   │   └── harness-register.ts # Surgical JSONC/YAML insertion
+│   ├── watcher/                # Giám sát file system & vòng đời
+│   │   ├── workspace-watcher.ts# Bắt direct writes ngoài MCP
+│   │   └── exit-flush.ts       # Dọn dẹp an toàn khi tắt IDE
+│   ├── ui/                     # Giao diện hiển thị trên VS Code
+│   │   ├── editor/             # Decorator, DiffView, CodeLens, Staged Review
+│   │   └── webview/            # Review Panel & Review Tab Provider
+│   └── extension.ts            # Entrypoint kích hoạt VS Code extension
+│
+├── jetbrains/                  # Mã nguồn JetBrains Plugin (Kotlin + Gradle)
+│   ├── src/main/kotlin/com/reviewhub/
+│   │   ├── actions/            # Toolbar actions (Accept, Reject, Checkpoint...)
+│   │   ├── diff/               # Tích hợp Native DiffManager
+│   │   ├── hub/                # HubClient & HubManager (REST API client)
+│   │   ├── inline/             # Merged diff & Editor listeners
+│   │   ├── model/              # Kotlin data classes tương thích types.ts
+│   │   ├── status/             # Project tree badges & file coloring
+│   │   └── toolwindow/         # Giao diện ToolWindow sidebar
+│   ├── src/main/resources/     # plugin.xml & icons
+│   ├── build.gradle.kts        # Cấu hình Gradle & IntelliJ Platform SDK
+│   └── gradlew / gradlew.bat   # Gradle Wrapper chính thức của JetBrains plugin
+│
+├── mcp/                        # MCP Server stdio
+│   └── mcp-server.ts           # Trình forwarder mỏng giữa Harness và Hub
+├── media/                      # Webview assets cho VS Code (HTML, CSS, JS, SVG)
+└── test/                       # Unit tests & Integration tests
 ```
-~/.review-hub/
-  hub.json                    thông tin discovery (url, token, pid) — chmod 0600
-  bin/mcp-server.cjs          bản copy cố định mà các harness trỏ vào
-  hub.db                      trạng thái review (SQLite, mặc định)
-  workspaces/<hash>/
-    baselines/<hash>          file baseline lưu theo content-addressed hash
-```
-
-Một database nhỏ tại `~/.review-hub/hub.db` (bảng `checkpoints`, `changes`, `hunks`) giữ
-trạng thái review. Nội dung baseline được lưu theo hash trong
-`~/.review-hub/workspaces/<hash>/baselines/` để database không phình to.
-
-Nếu máy không có `node:sqlite`, extension tự chuyển sang kho JSON cùng chỗ — thay `hub.db` bằng:
-
-```
-  workspaces/<hash>/
-    checkpoint.json           baseline từng file, chụp trong session này
-    baselines/<hash>          file baseline lưu theo content-addressed hash
-    changes/<id>.json         các change set đang chờ + quyết định
-```
-
-### Không snapshot sẵn, chỉ chụp khi cần
-
-Review Hub **không** quét workspace khi mở. Baseline của file đến từ một trong hai nguồn rẻ tiền:
-
-1. **`git show HEAD:<path>`** — miễn phí, phủ mọi file trong git repo.
-2. **Chụp lazy khi `propose_edit`** — luồng MCP chạy *trước* khi sửa, nên nội dung hiện trên đĩa
-   chính là baseline đúng.
-
-Hệ quả:
-
-- Mở repo lớn tốn gần như bằng không (không quét file, không đập đĩa).
-- Session mà agent không sửa gì thì không hiện gì.
-- Chỉ những file thực sự đổi mới được theo dõi và lưu.
-- Thư mục data/model (`checkpoints/`, `datasets/`, `*.pt`, `*.bin`, ảnh, …) bị loại trừ mặc định
-  nên không bao giờ bị đọc hay hash.
-
-Nếu một file không được commit vào git và cũng không stage qua MCP, nó không có baseline và sẽ
-hiện là **file mới** — đây là câu trả lời trung thực. Muốn chụp trạng thái hiện tại một cách
-tường minh, chạy **Review Hub: Set Checkpoint** (giới hạn bởi `review-hub.maxSnapshotFiles`).
 
 ---
 
-## 12. Ghi chú thiết kế
+## 7. Hướng dẫn phát triển (Development & Build)
 
-- **Các quyết định không đẩy nhau.** Hunk được tính một lần so với baseline, rồi file được dựng
-  lại bằng cách replay các quyết định từ baseline. Accept hunk 1 **không** làm đổi số dòng của
-  hunk 2 (khác với việc sửa trên document đang sống).
-- **Chưa duyệt = giữ baseline**, nên hunk chưa xem không bao giờ bị accept ngầm.
-- **Giữ nguyên line ending và BOM**: nội dung được chuẩn hoá để diff rồi phục hồi khi ghi, nên
-  đổi CRLF ↔ LF không bị hiện thành thay đổi cả file.
-- **Token không bao giờ nằm trong config của harness** (dsh còn scrub biến env khớp `*TOKEN*`);
-  MCP server đọc token từ `hub.json`.
-
----
-
-## 13. Xử lý sự cố
-
-| Triệu chứng | Nguyên nhân thường gặp & cách xử lý |
-|---|---|
-| Panel báo "No changes to review" dù agent vừa sửa | Agent chưa nạp MCP server → khởi động lại harness; hoặc file không đổi thật sự; hoặc chưa có checkpoint → chạy **Set Checkpoint**. |
-| Agent đọc file và báo "nội dung cũ" | Đúng thiết kế của review-then-apply. Agent nên dùng tool `read_file` của Review Hub. |
-| Agent nói `propose_edit` "thất bại" và retry | `status: "staged_for_review"` là **thành công**. Chạy lại **Install agent instructions** để nhắc agent điều này. |
-| Accept rồi mà file trên đĩa vẫn cũ | Kiểm tra đúng file/hunk; xem badge còn không. Mở tab review xem trạng thái hunk. |
-| Extension báo không có SQLite | VS Code < 1.103 hoặc Electron cũ. Nâng VS Code, hoặc để extension tự fallback sang kho JSON. |
-| Muốn reset sạch | **Clear Checkpoint**, rồi xoá `~/.review-hub/` (mất toàn bộ trạng thái review). |
-| Nhiều cửa sổ VS Code | Mỗi cửa sổ chỉ hiện thay đổi của workspace đang mở trong cửa sổ đó. |
-
----
-
-## 14. Phát triển
-
+### Phát triển VS Code Extension & MCP:
 ```bash
-npm run build       # bundle dist/extension.js và dist/mcp-server.cjs
-npm run typecheck   # tsc --noEmit
-npm test            # 246 tests: hunk diff, store, backend, sqlite, hub, panel, tab, MCP, e2e, staged model, staged engine, decorations, CodeLens, wiring, exit flush, localized hunk edit
-npm run package     # tạo file .vsix
+npm install             # Cài đặt dependencies
+npm run build           # Bundle dist/extension.js, dist/mcp-server.cjs, dist/hub-server.cjs
+npm run typecheck       # Kiểm tra kiểu TypeScript (tsc --noEmit)
+npm test                # Chạy toàn bộ test suites
+npm run package         # Đóng gói file .vsix
 ```
 
-> **Lưu ý:** hãy build project này trên filesystem Linux native. Trên mount WSL `/mnt/*` (9p),
-> `npm install` chạy song song có thể ghi đè làm hỏng file.
+### Phát triển JetBrains Plugin:
+```bash
+cd jetbrains
+./gradlew runIde        # Khởi chạy một IDE con thử nghiệm kèm plugin
+./gradlew test          # Chạy Kotlin unit tests
+./gradlew buildPlugin   # Đóng gói file .zip phân phối tại build/distributions/
+```
 
 ---
 
-## 15. Native Diff Review & Lưu trực tiếp trên đĩa
+## 8. Cơ chế lưu trữ & Snapshot
 
-Khi agent sửa file, Review Hub **ghi ngay lập tức nội dung sửa đổi xuống file thật trên đĩa** và lưu lại bản gốc trước đó làm baseline:
-- File thật luôn ở trạng thái sạch, có cú pháp hoàn chỉnh và hoạt động được ngay.
-- Không can thiệp sửa buffer text giả lập, hoàn toàn tương thích và không bao giờ xung đột với `files.autoSave`.
-- Bắn thông báo (Toast notification) trong VS Code kèm nút **Review Diff**, **Accept All**, **Reject All**.
+Review Hub lưu trữ trạng thái tại thư mục `~/.review-hub/`:
+```text
+~/.review-hub/
+  hub.json                      # Thông tin URL, Port, Bearer Token của Hub đang chạy
+  hub.lock                      # Lockfile nguyên tử đảm bảo 1 host election
+  hub.db                        # SQLite database lưu trữ change sets và hunk decisions
+  workspaces/<workspace-hash>/
+    baselines/<hash>            # Nội dung gốc (baseline) lưu theo content-addressed hash
+```
 
-| Thao tác | Kết quả |
+- **Chụp Lazy Snapshot**: Review Hub **không quét toàn bộ ổ đĩa khi mở dự án**. Baseline được lấy tức thì từ `git show HEAD:<path>` hoặc chụp lại nội dung file ngay trước thời điểm agent gọi `propose_edit`.
+- **An toàn dữ liệu**: Thư mục datasets, checkpoints, models (`*.pt`, `*.bin`, thư mục cache, media...) luôn được tự động bỏ qua (ignored globs) để bảo đảm hiệu năng tối đa.
+
+---
+
+## 9. Xử lý sự cố (Troubleshooting)
+
+| Triệu chứng | Nguyên nhân & Cách khắc phục |
 |---|---|
-| `✓ Accept` | Đánh dấu hunk/file là `accepted`, code mới đã có sẵn trên đĩa |
-| `✗ Reject` | Khôi phục code cũ (`baseline`) về lại file trên đĩa |
-| Bấm `Review Diff` | Mở Native Diff Editor của VS Code so sánh giữa code cũ và code mới (hỗ trợ Inline View) |
-| Thoát VS Code | Buffer luôn sạch nên không lưu diff dở dang hay làm hỏng file thật |
-# hub-preview
+| Panel báo "No changes to review" dù agent vừa sửa file | Agent chưa nạp MCP server → Khởi động lại session của harness; hoặc file chưa có checkpoint → Bấm **Set Checkpoint**. |
+| Agent đọc file và thấy "nội dung cũ" | Đây là hành vi đúng của cơ chế Review-then-Apply (chưa duyệt thì chưa ghi xuống đĩa). Agent cần dùng công cụ `read_file` của Review Hub. |
+| Agent thông báo `propose_edit` thất bại và thử lại | Trạng thái `status: "staged_for_review"` là **thành công**. Chạy lệnh **Install agent instructions** để cập nhật hướng dẫn cho agent. |
+| JetBrains Plugin không kết nối được Hub | Kiểm tra file `~/.review-hub/hub.json`. Nếu không có Hub nào đang mở, plugin sẽ tự kích hoạt `hub-server.cjs` sau vài giây. |
+| Muốn reset sạch toàn bộ trạng thái review | Chạy lệnh **Clear Checkpoint**, hoặc xóa thư mục `~/.review-hub/`. |
