@@ -36,16 +36,31 @@
     return bar;
   }
 
+  function scrollToHunk(hunkId) {
+    if (!hunkId) return;
+    const target = document.getElementById("hunk-" + hunkId);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("hunk-highlight");
+      setTimeout(function () {
+        target.classList.remove("hunk-highlight");
+      }, 1500);
+    }
+  }
+
   function renderHunkBar(s, hunk) {
     const bar = el("div", "hunkbar");
-    bar.appendChild(el("span", "stat", "+" + hunk.added + " \u2212" + hunk.removed + " \u00b7 " + hunk.decision));
+    bar.id = "hunk-" + hunk.id;
+    bar.appendChild(el("span", "stat", "+" + hunk.added + " \u2212" + hunk.removed));
     bar.appendChild(el("span", "spacer"));
     if (hunk.decision === "accepted") {
-      bar.appendChild(button("\u2713 Accepted", "Undo — reject this hunk", function () {
+      bar.appendChild(el("span", "badge ok", "\u2713 accepted"));
+      bar.appendChild(button("\u21ba Undo", "Undo — restore baseline lines", function () {
         send("rejectHunk", { changeId: s.changeId, hunkId: hunk.id });
       }));
     } else if (hunk.decision === "rejected") {
-      bar.appendChild(button("\u2717 Rejected", "Undo — accept this hunk", function () {
+      bar.appendChild(el("span", "badge no", "\u2717 rejected"));
+      bar.appendChild(button("\u2713 Undo", "Undo — keep proposed lines", function () {
         send("acceptHunk", { changeId: s.changeId, hunkId: hunk.id });
       }));
     } else {
@@ -82,7 +97,16 @@
 
   window.addEventListener("message", function (event) {
     const msg = event.data;
-    if (msg && msg.type === "update") render(msg.state);
+    if (msg && msg.type === "update") {
+      render(msg.state);
+      if (msg.targetHunkId) {
+        setTimeout(function () {
+          scrollToHunk(msg.targetHunkId);
+        }, 50);
+      }
+    } else if (msg && msg.type === "scrollToHunk") {
+      scrollToHunk(msg.hunkId);
+    }
   });
 
   send("ready");

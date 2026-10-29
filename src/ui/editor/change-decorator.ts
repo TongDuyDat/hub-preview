@@ -112,13 +112,17 @@ export class ChangeDecorator implements vscode.Disposable {
     if (editor.document.uri.scheme !== "file") {
       return undefined;
     }
-    const fsPath = editor.document.uri.fsPath;
+    const isWin = process.platform === "win32";
+    const fsPath = editor.document.uri.fsPath.replace(/\\/g, "/");
     for (const ws of vscode.workspace.workspaceFolders ?? []) {
-      const rel = fsPath.slice(ws.uri.fsPath.length + 1);
-      if (!rel || rel.startsWith("..")) {
+      const root = ws.uri.fsPath.replace(/[\\/]+$/, "").replace(/\\/g, "/");
+      const compFs = isWin ? fsPath.toLowerCase() : fsPath;
+      const compRoot = isWin ? root.toLowerCase() : root;
+      if (!compFs.startsWith(compRoot + "/")) {
         continue;
       }
-      const cs = this.store.findChangeByPath(ws.uri.fsPath, rel.split("\\").join("/"));
+      const rel = fsPath.slice(root.length + 1);
+      const cs = this.store.findChangeByPath(ws.uri.fsPath, rel);
       if (cs) {
         return cs;
       }

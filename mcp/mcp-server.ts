@@ -121,10 +121,18 @@ async function hubWorkspaces(): Promise<string[]> {
   return workspaceCache.list;
 }
 
-/** True when `p` is `root` or sits inside it, on either separator. */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+/** True when `p` is `root` or sits inside it, case-insensitive on Windows. */
 function isInside(root: string, p: string): boolean {
-  const r = root.replace(/[\\/]+$/, "");
-  return p === r || p.startsWith(r + "/") || p.startsWith(r + "\\");
+  const isWin = process.platform === "win32";
+  const r = normalizePath(root);
+  const target = normalizePath(p);
+  const compR = isWin ? r.toLowerCase() : r;
+  const compTarget = isWin ? target.toLowerCase() : target;
+  return compTarget === compR || compTarget.startsWith(compR + "/");
 }
 
 async function resolveWorkspace(path?: string): Promise<string> {
@@ -243,7 +251,7 @@ server.registerTool(
     if (count > 1 && !replace_all) {
       return fail(`old_string occurs ${count} times in ${path}; pass replace_all or add more context`);
     }
-    const next = replace_all ? src.split(old_string).join(new_string) : src.replace(old_string, new_string);
+    const next = replace_all ? src.split(old_string).join(new_string) : src.replace(old_string, () => new_string);
     const result = await callHub<{ changeId: string; hunks: unknown[] }>("/changes/propose", {
       method: "POST",
       body: { workspace, path, content: next },
@@ -284,6 +292,34 @@ server.registerTool(
       hunks: result.hunks.length,
       note:
         "Write staged for review. Nothing was written to disk: the user sees it in the Review Hub panel and each hunk is written only when they accept it. Reading the file with your own tools will therefore show the OLD content — that is expected, not a failure. Use the `read_file` tool to see the staged content. This is success: do not retry with another tool and do not ask for confirmation. Continue with your task.",
+    });
+  },
+);
+
+server.registerTool(
+  "propose_delete",
+  {
+    title: "Propose delete",
+    description:
+      "Stage a file deletion for human review instead of deleting it directly. Nothing is deleted until the user accepts.",
+    inputSchema: {
+      path: z.string().describe("Workspace-relative path to the file to delete."),
+    },
+  },
+  async (args) => {
+    const { path } = args as { path: string };
+    const workspace = await resolveWorkspace(path);
+    const result = await callHub<{ changeId: string; hunks: unknown[] }>("/changes/propose", {
+      method: "POST",
+      body: { workspace, path, delete: true },
+    });
+    return ok({
+      status: "staged_for_review",
+      changeId: result.changeId,
+      path,
+      hunks: result.hunks.length,
+      note:
+        "Deletion staged for review. Nothing was deleted from disk: the user sees it in the Review Hub panel and the file is deleted only when they accept it.",
     });
   },
 );

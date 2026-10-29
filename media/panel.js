@@ -100,6 +100,20 @@
     header.appendChild(el("span", "stat del", "\u2212" + next.removed));
     root.appendChild(header);
 
+    if (next.totalFiles === 0) {
+      const actions = el("div", "actions");
+      actions.appendChild(button("\u27f3 Checkpoint", "Set a new checkpoint (accept the current state)", function () {
+        send("setCheckpoint");
+      }));
+      root.appendChild(actions);
+
+      const cp = next.checkpoint
+        ? "Checkpoint: " + next.checkpoint.files + " files"
+        : "No checkpoint set — changes are measured from now.";
+      root.appendChild(el("div", "empty", "No changes to review. " + cp));
+      return;
+    }
+
     const actions = el("div", "actions");
     actions.appendChild(button("\u2713 Accept All", "Accept every change in every project", function () {
       send("acceptAll");
@@ -107,18 +121,10 @@
     actions.appendChild(button("\u21ba Discard All", "Reject every change in every project", function () {
       send("rejectAll");
     }));
-    actions.appendChild(button("\u27f3", "Set a new checkpoint (accept the current state)", function () {
+    actions.appendChild(button("\u27f3 Checkpoint", "Set a new checkpoint (accept the current state)", function () {
       send("setCheckpoint");
     }));
     root.appendChild(actions);
-
-    if (next.totalFiles === 0) {
-      const cp = next.checkpoint
-        ? "Checkpoint: " + next.checkpoint.files + " files"
-        : "No checkpoint set — changes are measured from now.";
-      root.appendChild(el("div", "empty", "No changes to review. " + cp));
-      return;
-    }
 
     for (const group of next.groups) {
       if (next.groups.length > 1) root.appendChild(el("div", "group", group.label));

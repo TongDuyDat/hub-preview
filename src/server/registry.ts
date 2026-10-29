@@ -56,7 +56,7 @@ export function pidAlive(pid: number): boolean {
 }
 
 export function defaultBaseDir(): string {
-  return path.join(os.homedir(), ".review-hub");
+  return process.env.REVIEW_HUB_DIR ?? path.join(os.homedir(), ".review-hub");
 }
 
 export function createRegistry(baseDir = defaultBaseDir()): Registry {

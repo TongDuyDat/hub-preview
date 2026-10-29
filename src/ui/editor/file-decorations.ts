@@ -58,12 +58,16 @@ export class ChangeFileDecorationProvider implements vscode.FileDecorationProvid
   }
 
   private changeFor(fsPath: string): ReturnType<ChangeStore["findChangeByPath"]> {
+    const isWin = process.platform === "win32";
+    const normFs = fsPath.replace(/\\/g, "/");
     for (const ws of this.getWorkspaces()) {
-      const root = ws.replace(/[\\/]+$/, "");
-      if (!fsPath.startsWith(root + "/") && !fsPath.startsWith(root + "\\")) {
+      const root = ws.replace(/[\\/]+$/, "").replace(/\\/g, "/");
+      const compFs = isWin ? normFs.toLowerCase() : normFs;
+      const compRoot = isWin ? root.toLowerCase() : root;
+      if (!compFs.startsWith(compRoot + "/")) {
         continue;
       }
-      const rel = fsPath.slice(root.length + 1).split("\\").join("/");
+      const rel = normFs.slice(root.length + 1);
       const cs = this.store.findChangeByPath(root, rel);
       if (cs) {
         return cs;

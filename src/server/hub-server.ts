@@ -253,11 +253,22 @@ export class HubServer {
     const relKey = toPosix(path.relative(workspace, abs));
     const cs = this.store.findChangeByPath(workspace, relKey);
     if (cs && !cs.binary) {
+      if (!cs.proposedExists) {
+        this.send(res, 200, {
+          exists: false,
+          binary: false,
+          content: "",
+          hash: "",
+          path: toPosix(relPath),
+          staged: true,
+        });
+        return;
+      }
       const base = splitContent(cs.baseline);
       const lines = resolveLines(base.lines, cs.hunks, "proposed");
       const content = joinContent(lines, { eol: cs.eol, bom: cs.bom, finalNewline: cs.finalNewline });
       this.send(res, 200, {
-        exists: cs.baselineExists || content.length > 0,
+        exists: true,
         binary: false,
         content,
         hash: "",

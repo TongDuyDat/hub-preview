@@ -338,7 +338,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // does: `decide` is a `const` and `decideMany`/`decideFileById` are hoisted `async function`
   // declarations later in this scope, and a closure may reference a later `const` as long as
   // it does not *run* before that const is initialised.
-  let openReviewTab: (changeId: string) => void;
+  let openReviewTab: (changeId: string, targetHunkId?: string) => void;
 
   const panelActions: PanelActions = {
     acceptHunk: (changeId, hunkId) => void decide(changeId, [hunkId], "accept"),
@@ -347,7 +347,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     rejectFile: (changeId) => void decideFileById(changeId, "reject"),
     acceptAll: () => void decideMany(workspaceFolders(), "accept"),
     rejectAll: () => void decideMany(workspaceFolders(), "reject"),
-    openHunk: (changeId) => openReviewTab(changeId),
+    openHunk: (changeId, hunkId) => openReviewTab(changeId, hunkId),
     openDiff: (changeId) => openReviewTab(changeId),
     setCheckpoint: () => void vscode.commands.executeCommand("review-hub.setCheckpoint"),
   };
@@ -366,7 +366,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       rejectFile: (changeId) => void decideFileById(changeId, "reject"),
     },
   );
-  openReviewTab = (changeId) => tab.open(changeId);
+  openReviewTab = (changeId, targetHunkId) => tab.open(changeId, targetHunkId);
   staged = new StagedReview(stagedHost);
 
   const diffView = new DiffView(hub.store, provider, codeLens, () => {

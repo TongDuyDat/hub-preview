@@ -24,6 +24,28 @@ function home(): string {
   }
 }
 
+function rooSettingsPath(h: string): string {
+  const serverPath = path.join(h, ".vscode-server", "data", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "mcp_settings.json");
+  if (fs.existsSync(serverPath)) return serverPath;
+  if (process.platform === "win32" && process.env.APPDATA) {
+    return path.join(process.env.APPDATA, "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "mcp_settings.json");
+  }
+  if (process.platform === "darwin") {
+    return path.join(h, "Library", "Application Support", "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "mcp_settings.json");
+  }
+  return path.join(h, ".config", "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "mcp_settings.json");
+}
+
+function clineSettingsPath(h: string): string {
+  const clineHome = path.join(h, ".cline", "data", "settings", "cline_mcp_settings.json");
+  if (fs.existsSync(clineHome)) return clineHome;
+  if (process.platform === "win32" && process.env.APPDATA) {
+    const p = path.join(process.env.APPDATA, "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json");
+    if (fs.existsSync(p)) return p;
+  }
+  return clineHome;
+}
+
 export function harnessTargets(): HarnessTarget[] {
   const h = home();
   return [
@@ -51,14 +73,14 @@ export function harnessTargets(): HarnessTarget[] {
     {
       id: "roo",
       label: "Roo Code",
-      file: path.join(h, ".vscode-server", "data", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "mcp_settings.json"),
+      file: rooSettingsPath(h),
       format: "json",
       containerKey: "mcpServers",
     },
     {
       id: "cline",
       label: "Cline",
-      file: path.join(h, ".cline", "data", "settings", "cline_mcp_settings.json"),
+      file: clineSettingsPath(h),
       format: "json",
       containerKey: "mcpServers",
     },

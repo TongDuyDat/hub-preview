@@ -43,11 +43,11 @@ export class ReviewTab implements vscode.Disposable {
   ) {}
 
   /** Open (or reveal) the review tab for a change. */
-  open(changeId: string): void {
+  open(changeId: string, targetHunkId?: string): void {
     const existing = this.panels.get(changeId);
     if (existing) {
       existing.reveal();
-      this.refresh(changeId);
+      this.refresh(changeId, targetHunkId);
       return;
     }
     const cs = this.source.change(changeId);
@@ -73,11 +73,11 @@ export class ReviewTab implements vscode.Disposable {
     panel.webview.onDidReceiveMessage((msg: TabMessage) => this.onMessage(msg));
     panel.onDidDispose(() => this.panels.delete(changeId));
     this.panels.set(changeId, panel);
-    this.refresh(changeId);
+    this.refresh(changeId, targetHunkId);
   }
 
   /** Re-post the state after a decision, and refresh the title with the new progress. */
-  refresh(changeId: string): void {
+  refresh(changeId: string, targetHunkId?: string): void {
     const panel = this.panels.get(changeId);
     if (!panel) {
       return;
@@ -87,7 +87,7 @@ export class ReviewTab implements vscode.Disposable {
       return;
     }
     panel.title = titleFor(cs);
-    void panel.webview.postMessage({ type: "update", state: buildReviewState(cs) });
+    void panel.webview.postMessage({ type: "update", state: buildReviewState(cs), targetHunkId });
   }
 
   refreshAll(): void {
