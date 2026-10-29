@@ -13,6 +13,7 @@ import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.ui.ColoredListCellRenderer
+import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
@@ -21,6 +22,7 @@ import com.reviewhub.hub.HubManager
 import com.reviewhub.inline.ReviewHubInlineReview
 import com.reviewhub.model.ChangeSummary
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.io.File
@@ -32,6 +34,17 @@ import javax.swing.SwingUtilities
 import javax.swing.border.EmptyBorder
 
 class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
+    companion object {
+        private val GREEN_ATTR = SimpleTextAttributes(
+            SimpleTextAttributes.STYLE_BOLD,
+            JBColor(Color(0x2E, 0x7D, 0x32), Color(0x4A, 0xDE, 0x80))
+        )
+        private val RED_ATTR = SimpleTextAttributes(
+            SimpleTextAttributes.STYLE_BOLD,
+            JBColor(Color(0xC6, 0x28, 0x28), Color(0xF8, 0x71, 0x71))
+        )
+    }
+
     private val hubManager = project.getService(HubManager::class.java)
     private val listModel = DefaultListModel<ChangeSummary>()
     private val changeList = JBList(listModel)
@@ -66,13 +79,20 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
                 icon = if (value.status == "applied") AllIcons.Actions.Commit else AllIcons.FileTypes.Any_type
 
-                val prefix = if (value.origin == "mcp") "[MCP] " else "[FS] "
-                append(prefix, SimpleTextAttributes.GRAY_ATTRIBUTES)
+                append(value.path, SimpleTextAttributes.REGULAR_ATTRIBUTES)
 
-                append(value.path, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-
-                val stats = " (+${value.added} / -${value.removed}) [${value.pending} pending]"
-                append(stats, SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
+                if (value.added > 0 || value.removed > 0) {
+                    append("  ")
+                    if (value.added > 0) {
+                        append("+${value.added}", GREEN_ATTR)
+                    }
+                    if (value.added > 0 && value.removed > 0) {
+                        append(" ")
+                    }
+                    if (value.removed > 0) {
+                        append("-${value.removed}", RED_ATTR)
+                    }
+                }
             }
         }
 
@@ -83,8 +103,8 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 changeList.selectedIndex = index
                 val selected = changeList.selectedValue ?: return
 
-                if (e.clickCount == 2 && SwingUtilities.isLeftMouseButton(e)) {
-                    ReviewHubDiffViewer.showDiff(project, selected)
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    openRealFile(selected)
                 } else if (SwingUtilities.isRightMouseButton(e)) {
                     showContextMenu(e, selected)
                 }
@@ -105,25 +125,32 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setContent(contentPanel)
     }
 
+    private fun openRealFile(item: ChangeSummary) {
+        val basePath = project.basePath ?: return
+        val file = File(basePath, item.path)
+        val lfs = LocalFileSystem.getInstance()
+        val vf = lfs.refreshAndFindFileByIoFile(file) ?: lfs.findFileByIoFile(file)
+        if (vf != null) {
+            FileEditorManager.getInstance(project).openFile(vf, true)
+        } else {
+            ReviewHubDiffViewer.showDiff(project, item)
+        }
+    }
+
     private fun showContextMenu(e: MouseEvent, item: ChangeSummary) {
         val menu = JBPopupMenu()
+
+        val openItem = JBMenuItem("Open in Editor", AllIcons.Actions.Edit)
+        openItem.addActionListener {
+            openRealFile(item)
+        }
+        menu.add(openItem)
 
         val diffItem = JBMenuItem("Compare with Baseline (Diff)", AllIcons.Actions.Diff)
         diffItem.addActionListener {
             ReviewHubDiffViewer.showDiff(project, item)
         }
         menu.add(diffItem)
-
-        val openItem = JBMenuItem("Open in Editor", AllIcons.Actions.Edit)
-        openItem.addActionListener {
-            val basePath = project.basePath ?: return@addActionListener
-            val file = File(basePath, item.path)
-            val vf = LocalFileSystem.getInstance().findFileByIoFile(file)
-            if (vf != null) {
-                FileEditorManager.getInstance(project).openFile(vf, true)
-            }
-        }
-        menu.add(openItem)
 
         menu.addSeparator()
 

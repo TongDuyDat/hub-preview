@@ -114,7 +114,7 @@ export class HubServer {
         case "POST /changes/observe":
           return this.send(res, 200, await this.routeObserve(await this.body(req)));
         case "GET /changes/list":
-          return this.send(res, 200, { files: this.store.listChanges(this.param(url, "workspace")) });
+          return this.send(res, 200, { files: this.store.listChanges(this.canonicalWorkspace(this.param(url, "workspace")) ?? this.param(url, "workspace")) });
         case "GET /changes/get":
           return this.send(res, 200, this.routeGet(url));
         case "POST /changes/accept":
@@ -144,8 +144,21 @@ export class HubServer {
     }
   }
 
+  private canonicalWorkspace(requested?: string): string | undefined {
+    if (!requested) return undefined;
+    const isWin = process.platform === "win32";
+    const norm = (s: string) => {
+      const r = s.replace(/[\\/]+$/, "").replace(/\\/g, "/");
+      return isWin ? r.toLowerCase() : r;
+    };
+    const compReq = norm(requested);
+    const known = this.store.listKnownWorkspaces();
+    const hit = known.find((ws) => norm(ws) === compReq);
+    return hit ?? requested;
+  }
+
   private routePropose(body: Record<string, unknown>) {
-    const workspace = this.requireString(body, "workspace");
+    const workspace = this.canonicalWorkspace(this.requireString(body, "workspace"))!;
     const relPath = this.requireString(body, "path");
     const del = body.delete === true;
     const content = del ? "" : this.requireString(body, "content", true);
@@ -155,7 +168,7 @@ export class HubServer {
   }
 
   private async routeObserve(body: Record<string, unknown>) {
-    const workspace = this.requireString(body, "workspace");
+    const workspace = this.canonicalWorkspace(this.requireString(body, "workspace"))!;
     const relPath = this.requireString(body, "path");
     const cs = await this.store.observe(workspace, relPath);
     if (!cs) {
@@ -167,7 +180,7 @@ export class HubServer {
 
   private routeGet(url: URL) {
     const changeId = this.param(url, "changeId");
-    const workspace = this.param(url, "workspace");
+    const workspace = this.canonicalWorkspace(this.param(url, "workspace"));
     const cs = workspace ? this.store.getChange(workspace, changeId) : this.storeById(changeId);
     if (!cs) {
       const err: ApiError = { error: { code: "not_found", message: `unknown change ${changeId}` } };
@@ -184,7 +197,7 @@ export class HubServer {
 
   private routeDecide(body: Record<string, unknown>, kind: "accept" | "reject") {
     let changeId = typeof body.changeId === "string" ? body.changeId : undefined;
-    const workspace = typeof body.workspace === "string" ? body.workspace : undefined;
+    const workspace = this.canonicalWorkspace(typeof body.workspace === "string" ? body.workspace : undefined);
     const path = typeof body.path === "string" ? body.path : undefined;
     if (!changeId && workspace && path) {
       changeId = this.store.findChangeByPath(workspace, path)?.id;
@@ -240,7 +253,7 @@ export class HubServer {
    * no change exists for the path.
    */
   private routeFileRead(url: URL, res: http.ServerResponse): void {
-    const workspace = this.param(url, "workspace");
+    const workspace = this.canonicalWorkspace(this.param(url, "workspace")) ?? this.param(url, "workspace");
     const relPath = this.param(url, "path");
     const abs = resolveInside(workspace, relPath);
     if (!abs) {

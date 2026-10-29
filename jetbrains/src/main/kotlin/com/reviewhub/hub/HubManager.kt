@@ -1,11 +1,7 @@
 package com.reviewhub.hub
 
 import com.intellij.ide.projectView.ProjectView
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
@@ -143,7 +139,7 @@ class HubManager(private val project: Project) : Disposable {
                         ProjectView.getInstance(project).refresh()
                         VirtualFileManager.getInstance().asyncRefresh(null)
 
-                        // 1. ToolWindow management: show ToolWindow & update badge
+                        // ToolWindow management: show ToolWindow & update badge
                         val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Review Hub")
                         if (toolWindow != null) {
                             if (currentPending.isNotEmpty()) {
@@ -154,11 +150,6 @@ class HubManager(private val project: Project) : Disposable {
                             } else {
                                 toolWindow.stripeTitle = "Review Hub"
                             }
-                        }
-
-                        // 2. Balloon notification for new changes
-                        if (newlyAddedPending.isNotEmpty()) {
-                            showChangesNotification(newlyAddedPending)
                         }
 
                         // Update inlays in all open editors
@@ -203,33 +194,6 @@ class HubManager(private val project: Project) : Disposable {
             c.reject(workspace = workspace)
             refresh()
         }
-    }
-
-    private fun showChangesNotification(newPending: List<ChangeSummary>) {
-        val count = newPending.size
-        val fileList = newPending.take(3).joinToString(", ") { it.path } + if (count > 3) " and ${count - 3} more" else ""
-        val group = NotificationGroupManager.getInstance().getNotificationGroup("Review Hub") ?: return
-        val notification = group.createNotification(
-            "Review Hub: Changes to Review",
-            "$count file(s) changed by AI: $fileList",
-            NotificationType.INFORMATION
-        )
-
-        notification.addAction(object : AnAction("Open Review Hub") {
-            override fun actionPerformed(e: AnActionEvent) {
-                ToolWindowManager.getInstance(project).getToolWindow("Review Hub")?.activate(null)
-                notification.expire()
-            }
-        })
-
-        notification.addAction(object : AnAction("Accept All") {
-            override fun actionPerformed(e: AnActionEvent) {
-                acceptAll()
-                notification.expire()
-            }
-        })
-
-        notification.notify(project)
     }
 
     fun findChange(relPath: String): ChangeSummary? {

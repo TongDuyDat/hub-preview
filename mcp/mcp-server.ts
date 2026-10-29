@@ -178,8 +178,16 @@ async function resolveWorkspace(path?: string): Promise<string> {
     }
   }
   const cwd = process.cwd();
-  if (known.includes(cwd)) {
-    return cwd;
+  const isWin = process.platform === "win32";
+  const norm = (s: string) => {
+    const r = s.replace(/[\\/]+$/, "").replace(/\\/g, "/");
+    return isWin ? r.toLowerCase() : r;
+  };
+  const compCwd = norm(cwd);
+  const match = known.find((ws) => norm(ws) === compCwd);
+  if (match) {
+    stickyWorkspace = match;
+    return match;
   }
   return stickyWorkspace ?? cwd;
 }

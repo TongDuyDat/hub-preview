@@ -955,7 +955,8 @@ export class ChangeStore {
 }
 
 export function summarize(cs: ChangeSet): ChangeSummary {
-  const stats = diffStats(cs.hunks);
+  const pendingHunks = cs.hunks.filter((h) => h.decision === "pending");
+  const stats = diffStats(pendingHunks.length > 0 || cs.status !== "resolved" ? pendingHunks : cs.hunks);
   return {
     id: cs.id,
     workspace: cs.workspace,
@@ -968,7 +969,7 @@ export function summarize(cs: ChangeSet): ChangeSummary {
     removed: stats.removed,
     accepted: cs.hunks.filter((h) => h.decision === "accepted").length,
     rejected: cs.hunks.filter((h) => h.decision === "rejected").length,
-    pending: cs.hunks.filter((h) => h.decision === "pending").length,
+    pending: pendingHunks.length,
   };
 }
 
