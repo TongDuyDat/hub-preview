@@ -232,7 +232,10 @@
     "watch": "node esbuild.js --watch",
     "typecheck": "tsc --noEmit",
     "package": "vsce package",
-    "test": "node scripts/test.mjs"
+    "test": "node scripts/test.mjs",
+    "build:mcp": "node esbuild.js",
+    "pack:mcp": "node esbuild.js && cd mcp && npm pack",
+    "publish:mcp": "node esbuild.js && cd mcp && npm publish --access public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

@@ -141,7 +141,66 @@ Tương thích: **IntelliJ IDEA (Community & Ultimate), PyCharm, WebStorm, CLion
 
 ---
 
-## 5. MCP Tools cho AI Agent
+## 5. Tích hợp MCP Server qua NPM (`review-hub-mcp`)
+
+Review Hub MCP Server được đóng gói và phân phối chính thức qua NPM dưới tên package **`review-hub-mcp`**.
+
+Người dùng không cần cài đặt thủ công vào ổ cứng. Chỉ cần cấu hình công cụ AI chạy trực tiếp qua `npx`:
+
+```json
+{
+  "mcpServers": {
+    "review-hub": {
+      "command": "npx",
+      "args": ["-y", "review-hub-mcp"]
+    }
+  }
+}
+```
+
+### Cấu hình chi tiết theo từng công cụ:
+
+- **Claude Code CLI** (thêm vào `~/.claude.json`):
+  ```json
+  {
+    "mcpServers": {
+      "review-hub": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "review-hub-mcp"]
+      }
+    }
+  }
+  ```
+- **Roo Code / Cline** (thêm vào `mcp_settings.json`):
+  ```json
+  {
+    "mcpServers": {
+      "review-hub": {
+        "command": "npx",
+        "args": ["-y", "review-hub-mcp"],
+        "disabled": false
+      }
+    }
+  }
+  ```
+- **opencode** (thêm vào `~/.config/opencode/opencode.jsonc`):
+  ```jsonc
+  {
+    "mcp": {
+      "review-hub": {
+        "type": "local",
+        "command": ["npx", "-y", "review-hub-mcp"],
+        "enabled": true
+      }
+    }
+  }
+  ```
+- **Cursor / Windsurf / Zed**: Thêm MCP Server loại stdio với lệnh `npx` và tham số `-y`, `review-hub-mcp`.
+
+---
+
+### Danh sách MCP Tools cho AI Agent
 
 Khi tích hợp với AI harness qua MCP, agent sẽ có các tools sau:
 

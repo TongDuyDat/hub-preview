@@ -94,6 +94,14 @@ export interface McpLaunch {
   env: Record<string, string>;
 }
 
+export function npxLaunchSpec(): McpLaunch {
+  return {
+    command: "npx",
+    args: ["-y", "review-hub-mcp"],
+    env: {},
+  };
+}
+
 /** Where the extension installs a stable copy of the bundled MCP server. */
 export function installedServerPath(baseDir: string): string {
   return path.join(baseDir, "bin", "mcp-server.cjs");

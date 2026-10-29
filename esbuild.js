@@ -1,4 +1,6 @@
 const esbuild = require("esbuild");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const watch = process.argv.includes("--watch");
 
@@ -39,10 +41,24 @@ const hubServerOptions = {
 
 const allTargets = [extensionOptions, mcpOptions, hubServerOptions];
 
+function syncMcpPackage() {
+  const mcpBinDir = path.join(__dirname, "mcp", "bin");
+  fs.mkdirSync(mcpBinDir, { recursive: true });
+  fs.copyFileSync(
+    path.join(__dirname, "dist", "mcp-server.cjs"),
+    path.join(mcpBinDir, "mcp-server.cjs")
+  );
+  try {
+    fs.chmodSync(path.join(mcpBinDir, "mcp-server.cjs"), 0o755);
+  } catch {}
+}
+
 if (watch) {
   Promise.all(allTargets.map((opt) => esbuild.context(opt)))
     .then((contexts) => Promise.all(contexts.map((ctx) => ctx.watch())))
     .catch(() => process.exit(1));
 } else {
-  Promise.all(allTargets.map((opt) => esbuild.build(opt))).catch(() => process.exit(1));
+  Promise.all(allTargets.map((opt) => esbuild.build(opt)))
+    .then(() => syncMcpPackage())
+    .catch(() => process.exit(1));
 }
