@@ -24,7 +24,7 @@
     "url": "git+https://github.com/TongDuyDat/hub-preview.git"
   },
   "license": "MIT",
-  "author": "Tong Duy Dat",
+  "author": "Hung, Tong Duy Dat",
   "main": "bin/mcp-server.cjs",
   "bin": {
     "review-hub-mcp": "bin/mcp-server.cjs"

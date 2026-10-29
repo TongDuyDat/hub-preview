@@ -1,5 +1,7 @@
 # review-hub-mcp
 
+**Tác giả:** Hung, Tong Duy Dat
+
 Official Model Context Protocol (MCP) server for **Review Hub**.
 
 Review Hub enables human-in-the-loop, hunk-by-hunk code review for AI coding agents (**Claude Code**, **Cline**, **Roo Code**, **opencode**, **dsh**, **Cursor**, **Windsurf**, etc.) directly inside **VS Code** and **JetBrains IDEs** (IntelliJ IDEA, WebStorm, PyCharm, CLion, GoLand, Android Studio, PhpStorm, Rider, RustRover...).

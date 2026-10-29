@@ -6,6 +6,7 @@
   "publisher": "review-hub",
   "license": "MIT",
   "preview": true,
+  "author": "Hung, Tong Duy Dat",
   "engines": {
     "vscode": "^1.103.0"
   },

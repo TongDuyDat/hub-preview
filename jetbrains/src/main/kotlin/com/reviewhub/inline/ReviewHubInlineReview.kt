@@ -286,16 +286,7 @@ object ReviewHubInlineReview {
                     highlighter.lineMarkerRenderer = greenGutterMarker
                 }
 
-                // Add Gutter Icon as additional 1-click option
-                highlighter.gutterIconRenderer = HunkGutterRenderer(
-                    project = project,
-                    changeId = changeId,
-                    hunkId = hunkId,
-                    hunkNumber = hunkNumber,
-                    isDeleted = isDeleted,
-                    workspace = workspace,
-                    relPath = relPath
-                )
+
 
                 activeHighlighters.add(highlighter)
             }
@@ -571,58 +562,5 @@ object ReviewHubInlineReview {
                 g2.dispose()
             }
         }
-    }
-
-    private class HunkGutterRenderer(
-        private val project: Project,
-        private val changeId: String,
-        private val hunkId: String,
-        private val hunkNumber: Int,
-        private val isDeleted: Boolean,
-        private val workspace: String,
-        private val relPath: String
-    ) : GutterIconRenderer() {
-
-        override fun getIcon(): Icon = if (isDeleted) AllIcons.Actions.Cancel else AllIcons.Actions.Checked
-
-        override fun getTooltipText(): String = if (isDeleted) {
-            "Review Hub: Removed in Hunk #$hunkNumber (Click to Reject)"
-        } else {
-            "Review Hub: Added in Hunk #$hunkNumber (Click to Accept)"
-        }
-
-        override fun getClickAction(): AnAction = object : AnAction() {
-            override fun actionPerformed(e: AnActionEvent) {
-                decideHunk(project, changeId, workspace, relPath, hunkId, if (isDeleted) "reject" else "accept")
-            }
-        }
-
-        override fun getPopupMenuActions(): ActionGroup = DefaultActionGroup().apply {
-            add(object : AnAction("Accept Hunk #$hunkNumber", "Apply this hunk to disk", AllIcons.Actions.Checked) {
-                override fun actionPerformed(e: AnActionEvent) {
-                    decideHunk(project, changeId, workspace, relPath, hunkId, "accept")
-                }
-            })
-            add(object : AnAction("Reject Hunk #$hunkNumber", "Discard this hunk", AllIcons.Actions.Cancel) {
-                override fun actionPerformed(e: AnActionEvent) {
-                    decideHunk(project, changeId, workspace, relPath, hunkId, "reject")
-                }
-            })
-            addSeparator()
-            add(object : AnAction("Compare Full Diff", "Open JetBrains Diff Viewer", AllIcons.Actions.Diff) {
-                override fun actionPerformed(e: AnActionEvent) {
-                    val hubManager = project.getService(HubManager::class.java)
-                    val change = hubManager.findChange(relPath)
-                    if (change != null) {
-                        ReviewHubDiffViewer.showDiff(project, change)
-                    }
-                }
-            })
-        }
-
-        override fun equals(other: Any?): Boolean =
-            other is HunkGutterRenderer && other.hunkId == hunkId && other.isDeleted == isDeleted
-
-        override fun hashCode(): Int = hunkId.hashCode() * 31 + isDeleted.hashCode()
     }
 }
