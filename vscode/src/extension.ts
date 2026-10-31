@@ -15,8 +15,6 @@ import { ChangeFileDecorationProvider } from "./ui/editor/file-decorations";
 import { DEFAULT_EXCLUDES, DEFAULT_INCLUDE_EXTENSIONS, type ChangeStore } from "../../core/src/change-store";
 import { flushPendingReviews } from "../../core/src/exit-flush";
 import { writeWindowState, clearWindowState, readWindowStates } from "../../core/src/window-registry";
-import { buildAllPreviews, applyPreview } from "./harness/harness-register";
-import { installedServerPath, nodeCommand, type McpLaunch, npxLaunchSpec } from "./harness/harness-paths";
 import { reloadOpenEditors } from "./ui/editor/editor-sync";
 import { StagedReview, type StageNotice, type StagedHost } from "./ui/editor/staged-review";
 import { HUB_PROTOCOL, type ChangeSet, type FileNode } from "../../core/src/types";
@@ -74,9 +72,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   const logger = new Logger("Review Hub");
   const baseDir = defaultBaseDir();
-
-  // Install the bundled MCP server to a stable path all harnesses can point at.
-  installMcpServer(context, baseDir, logger);
 
   const hub = new HubServer({
     baseDir,
@@ -785,24 +780,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       refreshUi();
     }),
-    vscode.commands.registerCommand("review-hub.copyMcpConfig", async () => {
-      const config = {
-        mcpServers: {
-          "review-hub": {
-            command: "npx",
-            args: ["-y", "review-hub-mcp"]
-          }
-        }
-      };
-      await vscode.env.clipboard.writeText(JSON.stringify(config, null, 2));
-      void vscode.window.showInformationMessage("Review Hub: MCP config copied to clipboard! Paste it into ~/.claude.json, Cline, or Roo Code.");
-    }),
-    vscode.commands.registerCommand("review-hub.registerMcp", () => registerMcp(baseDir, logger)),
+    vscode.commands.registerCommand("review-hub.copyMcpConfig", () => copyMcpConfigSnippet()),
+    vscode.commands.registerCommand("review-hub.registerMcp", () => copyMcpConfigSnippet()),
     vscode.commands.registerCommand("review-hub.installInstructions", () => installInstructions()),
     vscode.commands.registerCommand("review-hub.showHubInfo", async () => {
       const entry = registry.readEntry();
       const msg = entry
-        ? `Hub: ${entry.url}\nPID: ${entry.pid} (alive: ${pidAlive(entry.pid)})\nWorkspace: ${entry.workspace}\nMCP server: ${installedServerPath(baseDir)}`
+        ? `Hub: ${entry.url}\nPID: ${entry.pid} (alive: ${pidAlive(entry.pid)})\nWorkspace: ${entry.workspace}\nMCP server: npx -y review-hub-mcp`
         : "No hub registry entry.";
       void vscode.window.showInformationMessage(msg, { modal: true });
     }),
@@ -918,76 +902,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   logger.info("Review Hub activated");
 }
 
-function installMcpServer(context: vscode.ExtensionContext, baseDir: string, logger: Logger): void {
-  try {
-    const bundled = context.asAbsolutePath(path.join("dist", "mcp-server.cjs"));
-    if (!fs.existsSync(bundled)) {
-      logger.warn(`bundled MCP server not found at ${bundled}`);
-      return;
-    }
-    const target = installedServerPath(baseDir);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    const versionFile = path.join(baseDir, "bin", "version");
-    const version = String(context.extension.packageJSON.version ?? "0");
-    let installed = "";
-    try {
-      installed = fs.readFileSync(versionFile, "utf8").trim();
-    } catch {
-      // not installed yet
-    }
-    const bundledStat = fs.statSync(bundled);
-    const needsCopy = installed !== version || !fs.existsSync(target) || fs.statSync(target).size !== bundledStat.size;
-    if (needsCopy) {
-      const tmp = `${target}.${process.pid}.${Math.random().toString(36).slice(2, 6)}.tmp`;
-      fs.copyFileSync(bundled, tmp);
-      try { fs.chmodSync(tmp, 0o755); } catch {}
-      try {
-        fs.renameSync(tmp, target);
-      } catch {
-        try {
-          fs.unlinkSync(target);
-          fs.renameSync(tmp, target);
-        } catch {
-          fs.copyFileSync(tmp, target);
-          try { fs.unlinkSync(tmp); } catch {}
-        }
+async function copyMcpConfigSnippet(): Promise<void> {
+  const config = {
+    mcpServers: {
+      "review-hub": {
+        command: "npx",
+        args: ["-y", "review-hub-mcp"]
       }
-      fs.writeFileSync(versionFile, version);
-      logger.info(`installed MCP server to ${target} (v${version})`);
     }
-  } catch (err) {
-    logger.warn(`could not install MCP server: ${String(err)}`);
-  }
-}
-
-async function registerMcp(baseDir: string, logger: Logger): Promise<void> {
-  const launch: McpLaunch = npxLaunchSpec();
-  const previews = buildAllPreviews(launch);
-  const items = previews.map((p) => ({
-    label: p.target.label,
-    description: p.exists ? (p.alreadyRegistered ? "update" : "add") : "file not found",
-    detail: p.target.file,
-    picked: p.exists,
-    preview: p,
-  }));
-  const picked = await vscode.window.showQuickPick(items, {
-    canPickMany: true,
-    title: "Review Hub: register MCP server in which harnesses?",
-    placeHolder: "Select harnesses to update (a .reviewhub.bak backup is written first)",
-  });
-  if (!picked || picked.length === 0) {
-    return;
-  }
-  const results = picked.map((p) => applyPreview(p.preview));
-  const ok = results.filter((r) => r.written).length;
-  const failed = results.filter((r) => !r.written);
-  const summary = results.map((r) => `${r.target.label}: ${r.written ? "ok" : `failed (${r.error})`}`).join("\n");
-  logger.info(`register MCP:\n${summary}`);
-  if (failed.length > 0) {
-    void vscode.window.showWarningMessage(`Review Hub: registered in ${ok} harness(es).\n${summary}`, { modal: true });
-  } else {
-    void vscode.window.showInformationMessage(`Review Hub: registered in ${ok} harness(es). Restart them to pick it up.`);
-  }
+  };
+  await vscode.env.clipboard.writeText(JSON.stringify(config, null, 2));
+  void vscode.window.showInformationMessage(
+    "Review Hub MCP configuration copied to clipboard! Paste it into your AI tool settings (~/.claude.json, Cline, Roo Code, etc.)."
+  );
 }
 
 async function installInstructions(): Promise<void> {

@@ -96,7 +96,8 @@
       },
       {
         "command": "review-hub.registerMcp",
-        "title": "Review Hub: Register MCP in all harnesses"
+        "title": "Review Hub: Copy MCP Config for AI Tools",
+        "icon": "$(copy)"
       },
       {
         "command": "review-hub.installInstructions",
@@ -236,8 +237,6 @@
     "@review-hub/core": "*",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "diff": "^9.0.0",
-    "json5": "^2.2.3",
-    "yaml": "^2.9.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
