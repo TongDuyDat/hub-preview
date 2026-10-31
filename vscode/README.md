@@ -8,13 +8,6 @@ The official Review Hub extension for Visual Studio Code.
 - **Copy MCP Configuration**: One-click command `Review Hub: Copy MCP Config for AI Tools` to copy the clean `review-hub-mcp` configuration into your clipboard.
 - **Active Workspace Watcher**: Catches direct file writes by background agents even without MCP.
 
-## Structure
-- `resources/icons/`: Extension icon (`review-hub.svg`).
-- `resources/webview/`: HTML, CSS, and JS assets for the Sidebar panel and Review tab.
-- `src/ui/`: In-editor CodeLens, diff view, decorators, and webview state handlers.
-- `src/watcher/`: Workspace file watcher.
-- `src/extension.ts`: Main activation lifecycle.
-
 ## Building & Packaging
 ```bash
 # From workspace root
@@ -24,4 +17,4 @@ npm run package:vscode
 # Or inside vscode/
 npm run package
 ```
-This produces `vscode/review-hub-vscode-<version>.vsix` (ultra-compact, ~49 KB).
+This produces `vscode/review-hub-vscode-<version>.vsix` (~49 KB).

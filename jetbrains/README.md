@@ -30,3 +30,4 @@ To run a test instance of IntelliJ with the plugin installed:
 ```bash
 ./gradlew runIde
 ```
+
