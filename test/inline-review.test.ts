@@ -6,10 +6,10 @@ import * as path from "node:path";
 
 // `vscode` is aliased to test/vscode-stub.ts by the runner.
 import * as vscode from "./vscode-stub";
-import { ChangeStore } from "../src/core/change-store";
-import { ChangeContentProvider } from "../src/ui/editor/content-provider";
-import { HunkCodeLensProvider } from "../src/ui/editor/diff-view";
-import { buildReviewState } from "../src/ui/webview/review-panel-state";
+import { ChangeStore } from "../core/src/change-store";
+import { ChangeContentProvider } from "../vscode/src/ui/editor/content-provider";
+import { HunkCodeLensProvider } from "../vscode/src/ui/editor/diff-view";
+import { buildReviewState } from "../vscode/src/ui/webview/review-panel-state";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-inline-"));

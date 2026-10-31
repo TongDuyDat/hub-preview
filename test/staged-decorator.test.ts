@@ -4,9 +4,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "./vscode-stub";
-import { ChangeStore } from "../src/core/change-store";
-import { ChangeDecorator } from "../src/ui/editor/change-decorator";
-import { buildStagedText } from "../src/ui/editor/staged-content";
+import { ChangeStore } from "../core/src/change-store";
+import { ChangeDecorator } from "../vscode/src/ui/editor/change-decorator";
+import { buildStagedText } from "../vscode/src/ui/editor/staged-content";
 
 const OLD = "one\ntwo\nthree\n";
 const NEW = "one\nTWO\nthree\n";

@@ -6,9 +6,9 @@ import {
   type StageNotice,
   type StagedDocument,
   type StagedHost,
-} from "../src/ui/editor/staged-review";
-import { buildStagedText } from "../src/ui/editor/staged-content";
-import type { ChangeSet, Hunk } from "../src/core/types";
+} from "../vscode/src/ui/editor/staged-review";
+import { buildStagedText } from "../vscode/src/ui/editor/staged-content";
+import type { ChangeSet, Hunk } from "../core/src/types";
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 

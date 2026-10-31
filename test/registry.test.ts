@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createRegistry, pidAlive } from "../src/server/registry";
+import { createRegistry, pidAlive } from "../core/src/registry";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-reg-"));

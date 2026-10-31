@@ -5,8 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import JSON5 from "json5";
 import { parseDocument } from "yaml";
-import { buildPreview, applyPreview } from "../src/harness/harness-register";
-import type { HarnessTarget } from "../src/harness/harness-paths";
+import { buildPreview, applyPreview } from "../vscode/src/harness/harness-register";
+import type { HarnessTarget } from "../vscode/src/harness/harness-paths";
 
 const launch = { command: "node", args: ["/home/u/.review-hub/bin/mcp-server.cjs"], env: {} };
 

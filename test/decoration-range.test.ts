@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diskFrame, resolveHunkRanges, splitContent } from "../src/core/hunk-diff";
+import { diskFrame, resolveHunkRanges, splitContent } from "../core/src/hunk-diff";
 
 /**
  * Real-file decorations under review-then-apply. Which frame the disk is in depends on the
@@ -165,32 +165,32 @@ test("the same pending hunks anchor differently in the two frames", () => {
 // ---- ghost text formatting ---------------------------------------------------
 
 test("ghost text shows a single removed line", async () => {
-  const { ghostFor } = await import("../src/ui/editor/change-decorator");
+  const { ghostFor } = await import("../vscode/src/ui/editor/change-decorator");
   assert.equal(ghostFor(["import sys"]), "  ⊖ import sys");
 });
 
 test("ghost text preserves indentation with non-breaking spaces", async () => {
-  const { ghostFor } = await import("../src/ui/editor/change-decorator");
+  const { ghostFor } = await import("../vscode/src/ui/editor/change-decorator");
   const out = ghostFor(["        return None"]);
   assert.equal(out, "  \u2296 \u2003\u2003\u2003\u2003return None");
 });
 
 test("ghost text summarises a multi-line deletion", async () => {
-  const { ghostFor } = await import("../src/ui/editor/change-decorator");
+  const { ghostFor } = await import("../vscode/src/ui/editor/change-decorator");
   const out = ghostFor(["first", "second", "third"]);
   assert.match(out, /first/);
   assert.match(out, /\+2 more deleted/);
 });
 
 test("ghost text truncates a very long line", async () => {
-  const { ghostFor } = await import("../src/ui/editor/change-decorator");
+  const { ghostFor } = await import("../vscode/src/ui/editor/change-decorator");
   const out = ghostFor(["x".repeat(300)]);
   assert.ok(out.includes("…"), "long lines are truncated");
   assert.ok(out.length < 200);
 });
 
 test("added ghost text uses the ⊕ marker", async () => {
-  const { addedGhostFor } = await import("../src/ui/editor/change-decorator");
+  const { addedGhostFor } = await import("../vscode/src/ui/editor/change-decorator");
   assert.equal(addedGhostFor(["import sys"]), "  ⊕ import sys");
   assert.match(addedGhostFor(["a", "b"]), /\+1 more added/);
 });

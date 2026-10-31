@@ -5,8 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import * as vscode from "./vscode-stub";
-import { ChangeStore } from "../src/core/change-store";
-import { ReviewPanelProvider, type PanelActions } from "../src/ui/webview/review-panel";
+import { ChangeStore } from "../core/src/change-store";
+import { ReviewPanelProvider, type PanelActions } from "../vscode/src/ui/webview/review-panel";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-panel-"));

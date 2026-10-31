@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import { HubServer } from "../src/server/hub-server";
+import { HubServer } from "../core/src/hub-server";
 
 const SERVER = path.resolve("dist/mcp-server.cjs");
 

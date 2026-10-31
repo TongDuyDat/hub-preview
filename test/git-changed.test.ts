@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { gitChangedFiles } from "../src/core/git-baseline";
+import { gitChangedFiles } from "../core/src/git-baseline";
 
 function gitRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rh-gc-"));

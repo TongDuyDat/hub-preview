@@ -6,8 +6,8 @@ import * as path from "node:path";
 
 // `vscode` is aliased to the stub by the runner.
 import * as vscode from "./vscode-stub";
-import { ChangeStore } from "../src/core/change-store";
-import { ChangeFileDecorationProvider } from "../src/ui/editor/file-decorations";
+import { ChangeStore } from "../core/src/change-store";
+import { ChangeFileDecorationProvider } from "../vscode/src/ui/editor/file-decorations";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-fdec-"));

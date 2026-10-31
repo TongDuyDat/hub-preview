@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { JsonBackend, SqliteBackend, type StoreBackend } from "../src/core/store-backend";
-import { encodeBaseline, isEncodedBaseline } from "../src/core/file-snapshot";
-import { openDatabase } from "../src/core/sqlite";
-import type { ChangeSet } from "../src/core/types";
+import { JsonBackend, SqliteBackend, type StoreBackend } from "../core/src/store-backend";
+import { encodeBaseline, isEncodedBaseline } from "../core/src/file-snapshot";
+import { openDatabase } from "../core/src/sqlite";
+import type { ChangeSet } from "../core/src/types";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-be-"));

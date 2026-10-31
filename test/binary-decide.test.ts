@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { ChangeStore } from "../src/core/change-store";
+import { ChangeStore } from "../core/src/change-store";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-bin-"));

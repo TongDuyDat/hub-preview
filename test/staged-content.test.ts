@@ -7,8 +7,8 @@ import {
   stageSkipReason,
   stagedCountTitle,
   stagedMarks,
-} from "../src/ui/editor/staged-content";
-import type { ChangeSet, Hunk } from "../src/core/types";
+} from "../vscode/src/ui/editor/staged-content";
+import type { ChangeSet, Hunk } from "../core/src/types";
 
 const BASELINE = "one\ntwo\nthree\n";
 const PROPOSED = "one\nTWO\nthree\n";

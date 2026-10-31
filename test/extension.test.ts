@@ -24,7 +24,7 @@ const vscode = require("./vscode-stub") as {
 };
 
 test("activate registers the expected commands and starts the hub", async () => {
-  const { activate, deactivate } = await import("../src/extension");
+  const { activate, deactivate } = await import("../vscode/src/extension");
   const context = {
     subscriptions: [] as { dispose(): void }[],
     extension: { packageJSON: { version: "0.1.0" } },

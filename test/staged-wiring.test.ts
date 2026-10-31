@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ChangeStore } from "../src/core/change-store";
-import { buildStagedText } from "../src/ui/editor/staged-content";
-import { STAGED_CONTEXT_KEY } from "../src/ui/editor/staged-review";
+import { ChangeStore } from "../core/src/change-store";
+import { buildStagedText } from "../vscode/src/ui/editor/staged-content";
+import { STAGED_CONTEXT_KEY } from "../vscode/src/ui/editor/staged-review";
 
 // The runner aliases `vscode` to test/vscode-stub.ts. This file activates the extension in
 // its own process, so it gets a private hub and a private ~/.review-hub.
@@ -59,7 +59,7 @@ test("activation wires the staging engine into the workspace events", async () =
   };
   (vscode as unknown as { __textDocuments: unknown[] }).__textDocuments.push(doc);
 
-  const { activate } = await import("../src/extension");
+  const { activate } = await import("../vscode/src/extension");
   await activate(ctx as never);
 
   const events = vscode.__listeners.map((l) => l.event);
@@ -145,10 +145,10 @@ after(() => {
 });
 
 test("the staged Accept/Reject buttons are declared and registered", async () => {
-  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")) as {
+  const pkg = JSON.parse(fs.readFileSync(fs.existsSync(path.join(__dirname, "..", "vscode", "package.json")) ? path.join(__dirname, "..", "vscode", "package.json") : path.join(__dirname, "..", "package.json"), "utf8")) as {
     contributes: { commands: { command: string; icon?: string }[]; menus: Record<string, { command: string; when?: string }[]> };
   };
-  const { STAGED_CONTEXT_KEY } = await import("../src/ui/editor/staged-review");
+  const { STAGED_CONTEXT_KEY } = await import("../vscode/src/ui/editor/staged-review");
 
   for (const id of ["review-hub.stagedAcceptAll", "review-hub.stagedRejectAll"]) {
     const declared = pkg.contributes.commands.find((c) => c.command === id);
@@ -167,7 +167,7 @@ test("the staged Accept/Reject buttons are declared and registered", async () =>
 });
 
 test("deactivate() runs the exit flush before the window goes away", async () => {
-  const { deactivate } = await import("../src/extension");
+  const { deactivate } = await import("../vscode/src/extension");
 
   await deactivate();
 
