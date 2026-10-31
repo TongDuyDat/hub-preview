@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   build-and-release:
-    name: Build & Release Extension and Plugin
+    name: Build & Release Extension, Plugin, and MCP
     runs-on: ubuntu-latest
 
     steps:
@@ -35,10 +35,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Setup Java 21 (Temurin)
@@ -67,29 +67,34 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Build All Bundles (Core, MCP, VS Code)
+        run: npm run build
+
       - name: Typecheck & Test
         run: |
           npm run typecheck
           npm test
 
-      - name: Build Core & Bundles
-        run: npm run build
-
       - name: Package VS Code Extension (.vsix)
-        run: npm run package
+        run: npm run package:vscode
 
       - name: Package JetBrains Plugin (.zip)
         run: |
           chmod +x jetbrains/gradlew
           cd jetbrains && ./gradlew buildPlugin
 
+      - name: Package MCP Tarball (.tgz)
+        run: |
+          cd mcp && npm pack
+
       - name: Upload Artifacts to Actions Run
         uses: actions/upload-artifact@v4
         with:
           name: review-hub-artifacts
           path: |
-            *.vsix
+            vscode/*.vsix
             jetbrains/build/distributions/*.zip
+            mcp/*.tgz
 
       - name: Create or Update GitHub Release
         if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
@@ -101,8 +106,8 @@ jobs:
           prerelease: ${{ github.event.inputs.prerelease || (github.ref_type != 'tag' && github.event_name != 'workflow_dispatch') }}
           generate_release_notes: true
           files: |
-            *.vsix
+            vscode/*.vsix
             jetbrains/build/distributions/*.zip
+            mcp/*.tgz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
