@@ -175,3 +175,145 @@ test("an absolute path routes by containment", async () => {
     await hub.stop();
   }
 });
+
+test("propose_edit adapts CRLF/LF line endings gracefully", async () => {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "rh-mcp-eol-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-mcp-ws-eol-"));
+  fs.writeFileSync(path.join(workspace, "crlf.txt"), "line 1\r\nline 2\r\nline 3\r\n");
+  const hub = new HubServer({ baseDir, token: "tok", excludeGlobs: [] });
+  const addr = await hub.start(0);
+  await hub.store.setCheckpoint(workspace, { maxFileSize: 1e9, excludeGlobs: [] });
+
+  const conn = spawnMcp({ REVIEW_HUB_URL: addr.url, REVIEW_HUB_TOKEN: "tok", REVIEW_HUB_WORKSPACE: workspace });
+  try {
+    await init(conn);
+    const res = await conn.call("tools/call", {
+      name: "propose_edit",
+      arguments: { path: "crlf.txt", old_string: "line 2\n", new_string: "line 2 modified\n" },
+    });
+    const text = (res.result as { content: { text: string }[] }).content[0].text;
+    const payload = JSON.parse(text);
+    assert.equal(payload.status, "staged_for_review");
+    assert.equal(payload.hunks, 1);
+
+    const readRes = await conn.call("tools/call", {
+      name: "read_file",
+      arguments: { path: "crlf.txt" },
+    });
+    const readPayload = JSON.parse((readRes.result as { content: { text: string }[] }).content[0].text);
+    assert.match(readPayload.content, /line 2 modified/);
+  } finally {
+    conn.proc.kill();
+    await hub.stop();
+  }
+});
+
+test("read_file supports start_line, end_line, and line_numbers", async () => {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "rh-mcp-read-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-mcp-ws-read-"));
+  fs.writeFileSync(path.join(workspace, "lines.txt"), "A\nB\nC\nD\nE\n");
+  const hub = new HubServer({ baseDir, token: "tok", excludeGlobs: [] });
+  const addr = await hub.start(0);
+
+  const conn = spawnMcp({ REVIEW_HUB_URL: addr.url, REVIEW_HUB_TOKEN: "tok", REVIEW_HUB_WORKSPACE: workspace });
+  try {
+    await init(conn);
+    const res = await conn.call("tools/call", {
+      name: "read_file",
+      arguments: { path: "lines.txt", start_line: 2, end_line: 4, line_numbers: true },
+    });
+    const payload = JSON.parse((res.result as { content: { text: string }[] }).content[0].text);
+    assert.equal(payload.total_lines, 6);
+    assert.equal(payload.start_line, 2);
+    assert.equal(payload.end_line, 4);
+    assert.match(payload.content, /2 \| B/);
+    assert.match(payload.content, /3 \| C/);
+    assert.match(payload.content, /4 \| D/);
+  } finally {
+    conn.proc.kill();
+    await hub.stop();
+  }
+});
+
+test("get_change returns detailed hunks and unified diff", async () => {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "rh-mcp-diff-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-mcp-ws-diff-"));
+  fs.writeFileSync(path.join(workspace, "code.ts"), "const x = 1;\nconst y = 2;\n");
+  const hub = new HubServer({ baseDir, token: "tok", excludeGlobs: [] });
+  const addr = await hub.start(0);
+  await hub.store.setCheckpoint(workspace, { maxFileSize: 1e9, excludeGlobs: [] });
+
+  const conn = spawnMcp({ REVIEW_HUB_URL: addr.url, REVIEW_HUB_TOKEN: "tok", REVIEW_HUB_WORKSPACE: workspace });
+  try {
+    await init(conn);
+    await conn.call("tools/call", {
+      name: "propose_edit",
+      arguments: { path: "code.ts", old_string: "const x = 1;\n", new_string: "const x = 100;\n" },
+    });
+    const res = await conn.call("tools/call", {
+      name: "get_change",
+      arguments: { path: "code.ts" },
+    });
+    const payload = JSON.parse((res.result as { content: { text: string }[] }).content[0].text);
+    assert.equal(payload.path, "code.ts");
+    assert.equal(payload.hunksCount, 1);
+    assert.ok(payload.hunks[0].id);
+    assert.match(payload.diff, /-const x = 1;/);
+    assert.match(payload.diff, /\+const x = 100;/);
+  } finally {
+    conn.proc.kill();
+    await hub.stop();
+  }
+});
+
+test("checkpoint tools (get_checkpoint, clear_checkpoint) and list_workspaces work", async () => {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "rh-mcp-cp-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-mcp-ws-cp-"));
+  fs.writeFileSync(path.join(workspace, "f.txt"), "foo\n");
+  const hub = new HubServer({ baseDir, token: "tok", excludeGlobs: [] });
+  const addr = await hub.start(0);
+  await hub.store.setCheckpoint(workspace, { maxFileSize: 1e9, excludeGlobs: [] });
+
+  const conn = spawnMcp({ REVIEW_HUB_URL: addr.url, REVIEW_HUB_TOKEN: "tok", REVIEW_HUB_WORKSPACE: workspace });
+  try {
+    await init(conn);
+    const cpRes = await conn.call("tools/call", { name: "get_checkpoint", arguments: {} });
+    const cpPayload = JSON.parse((cpRes.result as { content: { text: string }[] }).content[0].text);
+    assert.ok(cpPayload.checkpoint);
+    assert.equal(cpPayload.checkpoint.files, 1);
+
+    const wsRes = await conn.call("tools/call", { name: "list_workspaces", arguments: {} });
+    const wsPayload = JSON.parse((wsRes.result as { content: { text: string }[] }).content[0].text);
+    assert.ok(Array.isArray(wsPayload.workspaces));
+
+    const clearRes = await conn.call("tools/call", { name: "clear_checkpoint", arguments: {} });
+    const clearPayload = JSON.parse((clearRes.result as { content: { text: string }[] }).content[0].text);
+    assert.ok(clearPayload.ok === true || clearPayload.cleared === true);
+  } finally {
+    conn.proc.kill();
+    await hub.stop();
+  }
+});
+
+test("resources and prompts are registered and callable", async () => {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "rh-mcp-rp-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-mcp-ws-rp-"));
+  fs.writeFileSync(path.join(workspace, "r.txt"), "resource test\n");
+  const hub = new HubServer({ baseDir, token: "tok", excludeGlobs: [] });
+  const addr = await hub.start(0);
+
+  const conn = spawnMcp({ REVIEW_HUB_URL: addr.url, REVIEW_HUB_TOKEN: "tok", REVIEW_HUB_WORKSPACE: workspace });
+  try {
+    await init(conn);
+    const resList = await conn.call("resources/list", {});
+    const rList = resList.result as { resources: Array<{ uri: string }> };
+    assert.ok(rList.resources.some((r) => r.uri === "review-hub://changes"));
+
+    const promptList = await conn.call("prompts/list", {});
+    const pList = promptList.result as { prompts: Array<{ name: string }> };
+    assert.ok(pList.prompts.some((p) => p.name === "review_pending_changes"));
+  } finally {
+    conn.proc.kill();
+    await hub.stop();
+  }
+});

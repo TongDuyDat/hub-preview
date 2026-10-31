@@ -938,10 +938,20 @@ function installMcpServer(context: vscode.ExtensionContext, baseDir: string, log
     const bundledStat = fs.statSync(bundled);
     const needsCopy = installed !== version || !fs.existsSync(target) || fs.statSync(target).size !== bundledStat.size;
     if (needsCopy) {
-      const tmp = `${target}.${process.pid}.tmp`;
+      const tmp = `${target}.${process.pid}.${Math.random().toString(36).slice(2, 6)}.tmp`;
       fs.copyFileSync(bundled, tmp);
-      fs.chmodSync(tmp, 0o755);
-      fs.renameSync(tmp, target);
+      try { fs.chmodSync(tmp, 0o755); } catch {}
+      try {
+        fs.renameSync(tmp, target);
+      } catch {
+        try {
+          fs.unlinkSync(target);
+          fs.renameSync(tmp, target);
+        } catch {
+          fs.copyFileSync(tmp, target);
+          try { fs.unlinkSync(tmp); } catch {}
+        }
+      }
       fs.writeFileSync(versionFile, version);
       logger.info(`installed MCP server to ${target} (v${version})`);
     }

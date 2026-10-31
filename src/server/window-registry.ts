@@ -41,9 +41,19 @@ export function writeWindowState(baseDir: string, state: WindowState): void {
   try {
     fs.mkdirSync(windowsDir(baseDir), { recursive: true });
     const file = stateFile(baseDir, state.pid);
-    const tmp = `${file}.${process.pid}.tmp`;
+    const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 6)}.tmp`;
     fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
-    fs.renameSync(tmp, file);
+    try {
+      fs.renameSync(tmp, file);
+    } catch {
+      try {
+        fs.unlinkSync(file);
+        fs.renameSync(tmp, file);
+      } catch {
+        fs.copyFileSync(tmp, file);
+        try { fs.unlinkSync(tmp); } catch {}
+      }
+    }
   } catch {
     // best effort; routing falls back to cwd
   }

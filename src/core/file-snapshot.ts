@@ -41,9 +41,26 @@ export function readFileSafe(absPath: string): FileReadResult {
 /** Write text atomically: write a sibling tmp file, then rename over the target. */
 export function writeFileAtomic(absPath: string, content: string): void {
   fs.mkdirSync(path.dirname(absPath), { recursive: true });
-  const tmp = `${absPath}.${process.pid}.${Date.now()}.tmp`;
+  const tmp = `${absPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
   fs.writeFileSync(tmp, content);
-  fs.renameSync(tmp, absPath);
+  try {
+    fs.renameSync(tmp, absPath);
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "EBUSY" || code === "EEXIST") {
+      try {
+        fs.unlinkSync(absPath);
+        fs.renameSync(tmp, absPath);
+        return;
+      } catch {
+        fs.copyFileSync(tmp, absPath);
+        try { fs.unlinkSync(tmp); } catch {}
+        return;
+      }
+    }
+    try { fs.unlinkSync(tmp); } catch {}
+    throw err;
+  }
 }
 
 /** Raw bytes of a file, or `undefined` when it cannot be read. */
@@ -62,9 +79,26 @@ export function readFileBytes(absPath: string): Buffer | undefined {
  */
 export function writeFileAtomicBytes(absPath: string, buf: Buffer): void {
   fs.mkdirSync(path.dirname(absPath), { recursive: true });
-  const tmp = `${absPath}.${process.pid}.${Date.now()}.tmp`;
+  const tmp = `${absPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
   fs.writeFileSync(tmp, buf);
-  fs.renameSync(tmp, absPath);
+  try {
+    fs.renameSync(tmp, absPath);
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "EBUSY" || code === "EEXIST") {
+      try {
+        fs.unlinkSync(absPath);
+        fs.renameSync(tmp, absPath);
+        return;
+      } catch {
+        fs.copyFileSync(tmp, absPath);
+        try { fs.unlinkSync(tmp); } catch {}
+        return;
+      }
+    }
+    try { fs.unlinkSync(tmp); } catch {}
+    throw err;
+  }
 }
 
 const B64_PREFIX = "b64:";
@@ -110,7 +144,11 @@ export function deleteFileSafe(absPath: string): void {
  */
 export function resolveInside(workspace: string, relPath: string): string | null {
   const normalized = relPath.replace(/\\/g, "/");
-  const abs = path.isAbsolute(normalized)
+  const isWin = process.platform === "win32";
+  // On Windows, a leading slash without a drive letter (/foo/bar) is not a full absolute
+  // path; it is intended as workspace-relative. Treat only drive paths (C:/...) as absolute.
+  const isAbsolute = isWin ? /^[A-Za-z]:[\\/]/.test(normalized) : path.isAbsolute(normalized);
+  const abs = isAbsolute
     ? path.resolve(normalized)
     : path.resolve(workspace, normalized.replace(/^\/+/, ""));
   const rel = path.relative(workspace, abs);
@@ -121,5 +159,5 @@ export function resolveInside(workspace: string, relPath: string): string | null
 }
 
 export function toPosix(p: string): string {
-  return p.split(path.sep).join("/");
+  return p.replace(/\\/g, "/");
 }

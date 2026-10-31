@@ -208,14 +208,27 @@ Khi tích hợp với AI harness qua MCP, agent sẽ có các tools sau:
 
 | Tool | Mô tả | Tham số |
 |---|---|---|
-| `propose_edit` | Đề xuất sửa một đoạn trong file (thay thế công cụ `Edit` native) | `path`, `old_string`, `new_string`, `replace_all?` |
+| `propose_edit` | Đề xuất sửa một đoạn trong file (tự động thích ứng EOL CRLF/LF, thay thế `Edit` native) | `path`, `old_string`, `new_string`, `replace_all?` |
 | `propose_write` | Đề xuất tạo mới hoặc ghi đè toàn bộ file | `path`, `content` |
 | `propose_delete` | Đề xuất xóa file (chờ người dùng duyệt) | `path` |
-| `read_file` | Đọc file qua Hub (trả về nội dung đang được staged) | `path` |
-| `list_changes` | Liệt kê toàn bộ file và hunks đang chờ duyệt | `workspace?`, `path?` |
-| `accept` | Chấp nhận toàn bộ hoặc một số hunk theo ID | `changeId?`, `path?`, `hunkIds?` |
+| `read_file` | Đọc file qua Hub (trả về staged content; hỗ trợ xem khoảng dòng & số dòng) | `path`, `start_line?`, `end_line?`, `line_numbers?` |
+| `list_changes` | Liệt kê toàn bộ file và thống kê hunks đang chờ duyệt | `workspace?`, `path?` |
+| `get_change` | Xem chi tiết thay đổi của một file/change, danh sách hunks kèm ID và unified diff | `path?`, `changeId?`, `include_diff?` |
+| `accept` | Chấp nhận toàn bộ hoặc một số hunk theo ID (ghi xuống đĩa) | `changeId?`, `path?`, `hunkIds?` |
 | `reject` | Từ chối và khôi phục baseline cho các hunk | `changeId?`, `path?`, `hunkIds?` |
 | `set_checkpoint` | Đánh dấu trạng thái hiện tại trên đĩa là bản gốc mới | `workspace?`, `path?` |
+| `get_checkpoint` | Kiểm tra trạng thái và số lượng file đang được lưu trong checkpoint | `workspace?`, `path?` |
+| `clear_checkpoint` | Xóa checkpoint hiện tại để reset lại toàn bộ baseline | `workspace?`, `path?` |
+| `list_workspaces` | Liệt kê danh sách các workspace và file đang active được Hub theo dõi | Không có |
+
+#### MCP Resources & Prompts
+
+Review Hub MCP Server còn hỗ trợ đầy đủ các chuẩn nâng cao của MCP:
+- **Resources**:
+  - `review-hub://changes`: Cung cấp danh sách JSON các thay đổi đang chờ duyệt theo thời gian thực.
+  - `review-hub://workspaces`: Cung cấp danh sách các workspace đang hoạt động trong Hub.
+- **Prompts**:
+  - `review_pending_changes`: Mẫu prompt chuẩn cho LLM phân tích, đánh giá rủi ro và khuyến nghị duyệt/từ chối từng hunk.
 
 ---
 

@@ -128,7 +128,7 @@ export class HubServer {
         case "POST /checkpoint/clear":
           return this.send(res, 200, this.routeCheckpointClear(await this.body(req)));
         case "GET /checkpoint/info":
-          return this.send(res, 200, { checkpoint: this.store.checkpointInfo(this.param(url, "workspace")) ?? null });
+          return this.send(res, 200, { checkpoint: this.store.checkpointInfo(this.canonicalWorkspace(this.param(url, "workspace")) ?? this.param(url, "workspace")) ?? null });
         case "GET /content":
           return this.routeContent(url, res);
         case "GET /file/read":
@@ -179,11 +179,17 @@ export class HubServer {
   }
 
   private routeGet(url: URL) {
-    const changeId = this.param(url, "changeId");
+    let changeId = this.param(url, "changeId");
     const workspace = this.canonicalWorkspace(this.param(url, "workspace"));
+    const relPath = this.param(url, "path");
+    if (!changeId && workspace && relPath) {
+      const abs = resolveInside(workspace, relPath);
+      const relKey = abs ? toPosix(path.relative(workspace, abs)) : toPosix(relPath);
+      changeId = this.store.findChangeByPath(workspace, relKey)?.id ?? "";
+    }
     const cs = workspace ? this.store.getChange(workspace, changeId) : this.storeById(changeId);
     if (!cs) {
-      const err: ApiError = { error: { code: "not_found", message: `unknown change ${changeId}` } };
+      const err: ApiError = { error: { code: "not_found", message: `unknown change ${changeId || relPath}` } };
       throw Object.assign(new Error(err.error.message), { status: 404 });
     }
     return { changeSet: cs };
@@ -216,14 +222,14 @@ export class HubServer {
   }
 
   private async routeCheckpointSet(body: Record<string, unknown>) {
-    const workspace = this.requireString(body, "workspace");
+    const workspace = this.canonicalWorkspace(this.requireString(body, "workspace"))!;
     const info = await this.store.setCheckpoint(workspace, this.snapshotOpts);
     this.events.onChanged?.(workspace, "", "");
     return info;
   }
 
   private routeCheckpointClear(body: Record<string, unknown>) {
-    const workspace = this.requireString(body, "workspace");
+    const workspace = this.canonicalWorkspace(this.requireString(body, "workspace"))!;
     this.store.clearCheckpoint(workspace);
     this.events.onChanged?.(workspace, "", "");
     return { ok: true };

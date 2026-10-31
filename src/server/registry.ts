@@ -74,9 +74,26 @@ export function createRegistry(baseDir = defaultBaseDir()): Registry {
 
   const writeEntry = (entry: HubEntry): void => {
     fs.mkdirSync(baseDir, { recursive: true });
-    const tmp = `${filePath}.${process.pid}.tmp`;
+    const tmp = `${filePath}.${process.pid}.${Math.random().toString(36).slice(2, 6)}.tmp`;
     fs.writeFileSync(tmp, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(tmp, filePath);
+    try {
+      fs.renameSync(tmp, filePath);
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EPERM" || code === "EBUSY" || code === "EEXIST") {
+        try {
+          fs.unlinkSync(filePath);
+          fs.renameSync(tmp, filePath);
+          return;
+        } catch {
+          fs.copyFileSync(tmp, filePath);
+          try { fs.unlinkSync(tmp); } catch {}
+          return;
+        }
+      }
+      try { fs.unlinkSync(tmp); } catch {}
+      throw err;
+    }
   };
 
   const clearEntry = (): void => {
