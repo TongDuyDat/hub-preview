@@ -652,17 +652,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The decision just rewrote the file (atomic tmp+rename). Reload any editor that
       // is showing it, so the click visibly changes the buffer instead of racing the
       // file watcher. Dirty buffers are left alone — see reloadOpenEditors.
-      const reloaded = reloadOpenEditors(
-        vscode.workspace.textDocuments,
-        vscode.Uri.file(cs.absPath).fsPath,
-        (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri),
-      );
+      // If the buffer is staged, staged.restage() smoothly updates it via applyEdit (no flicker).
+      // Only unstaged buffers need a revert reload from disk.
+      const isStaged = staged.changeIdFor(cs.absPath) === cs.id;
+      let reloaded = 0;
+      if (!isStaged) {
+        reloaded = reloadOpenEditors(
+          vscode.workspace.textDocuments,
+          vscode.Uri.file(cs.absPath).fsPath,
+          (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri),
+        );
+      }
       // The buffer is only a view: re-render it from the decisions just recorded. When the
       // last hunk is decided this hands the buffer back to disk (spec F1/F2).
       await staged.restage(changeId);
+      // diffView.refresh already triggers codeLens, diff provider, and refreshUi() once cleanly.
       await diffView.refresh(changeId);
-      tab.refresh(changeId);
-      refreshUi();
       logger.info(
         `${kind} ${changeId} -> ${result.status} (remaining ${result.remaining}, editors reloaded=${reloaded})`,
       );
@@ -885,11 +890,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (cs) {
           watcher.noteSelfWrite(cs.absPath);
           await staged.restage(cs.id);
-          reloaded += reloadOpenEditors(
-            vscode.workspace.textDocuments,
-            vscode.Uri.file(cs.absPath).fsPath,
-            (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri),
-          );
+          if (!staged.changeIdFor(cs.absPath)) {
+            reloaded += reloadOpenEditors(
+              vscode.workspace.textDocuments,
+              vscode.Uri.file(cs.absPath).fsPath,
+              (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri),
+            );
+          }
         }
       }
     }

@@ -90,6 +90,7 @@
   }
 
   function render(next) {
+    const prevScroll = window.scrollY || document.documentElement.scrollTop || 0;
     state = next;
     root.textContent = "";
 
@@ -130,6 +131,7 @@
       if (next.groups.length > 1) root.appendChild(el("div", "group", group.label));
       for (const file of group.files) root.appendChild(renderFile(file));
     }
+    window.scrollTo(0, prevScroll);
   }
 
   window.addEventListener("message", function (event) {

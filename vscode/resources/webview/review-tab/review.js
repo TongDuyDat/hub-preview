@@ -74,7 +74,8 @@
     return bar;
   }
 
-  function render(next) {
+  function render(next, targetHunkId) {
+    const prevScroll = window.scrollY || document.documentElement.scrollTop || 0;
     state = next;
     root.textContent = "";
     root.appendChild(renderBar(next));
@@ -93,17 +94,17 @@
       row.appendChild(el("span", "text", line.text === "" ? " " : line.text));
       root.appendChild(row);
     }
+    if (targetHunkId) {
+      scrollToHunk(targetHunkId);
+    } else {
+      window.scrollTo(0, prevScroll);
+    }
   }
 
   window.addEventListener("message", function (event) {
     const msg = event.data;
     if (msg && msg.type === "update") {
-      render(msg.state);
-      if (msg.targetHunkId) {
-        setTimeout(function () {
-          scrollToHunk(msg.targetHunkId);
-        }, 50);
-      }
+      render(msg.state, msg.targetHunkId);
     } else if (msg && msg.type === "scrollToHunk") {
       scrollToHunk(msg.hunkId);
     }
