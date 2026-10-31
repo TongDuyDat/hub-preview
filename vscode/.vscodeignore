@@ -21,5 +21,3 @@ tsconfig.json
 *.tgz
 *.log
 !dist/extension.js
-!dist/hub-server.cjs
-!dist/mcp-server.cjs
