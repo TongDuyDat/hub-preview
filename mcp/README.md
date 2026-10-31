@@ -89,14 +89,22 @@ To review and accept changes proposed by the AI:
 
 ## Available MCP Tools
 
-- `propose_edit`: Propose modifying part of a file (mirrors native Edit, staged for review).
+- `propose_edit`: Propose modifying part of a file (mirrors native Edit, auto-adapts CRLF/LF line endings, staged for review).
 - `propose_write`: Propose creating or replacing a file (staged for review).
 - `propose_delete`: Propose deleting a file (staged for review).
-- `read_file`: Read workspace files through the staged review state.
+- `read_file`: Read workspace files through the staged review state (supports line range and line numbers).
 - `list_changes`: List all pending changes and hunk counts.
-- `accept`: Accept specific hunks or entire files.
+- `get_change`: Inspect detailed hunks and unified diff for any pending change.
+- `accept`: Accept specific hunks or entire files (writes to disk).
 - `reject`: Reject specific hunks or revert files to baseline.
 - `set_checkpoint`: Establish the current on-disk state as the new baseline.
+- `get_checkpoint`: Check status and file count of the current checkpoint.
+- `clear_checkpoint`: Reset the current checkpoint baseline.
+- `list_workspaces`: List all workspaces tracked by Review Hub.
+
+### MCP Resources & Prompts
+- **Resources**: `review-hub://changes`, `review-hub://workspaces`
+- **Prompts**: `review_pending_changes`
 
 ---
 
