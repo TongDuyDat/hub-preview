@@ -43,9 +43,9 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
     this.view = view;
     view.webview.options = {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "media")],
+      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "resources"), vscode.Uri.joinPath(this.extensionUri, "vscode", "resources")],
     };
-    view.webview.html = webviewHtml(view.webview, this.extensionUri, {
+    view.webview.html = webviewHtml(view.webview, this.extensionUri, "panel", {
       html: "panel.html",
       css: "panel.css",
       js: "panel.js",

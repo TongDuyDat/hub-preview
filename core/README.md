@@ -7,3 +7,4 @@ The standalone core engine of Review Hub:
 - **REST Hub Server** (`hub-server.ts`, `hub-server-standalone.ts`, `registry.ts`): Local HTTP REST service communicating with IDE extensions (VS Code, JetBrains) and the MCP server.
 
 This package has zero dependencies on any IDE or editor SDK. It can run independently under Node.js 22+.
+

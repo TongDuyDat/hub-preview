@@ -18,3 +18,4 @@ npm run package:vscode
 npm run package
 ```
 This produces `review-hub-vscode-<version>.vsix`.
+

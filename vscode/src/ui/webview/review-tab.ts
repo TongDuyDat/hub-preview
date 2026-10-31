@@ -62,10 +62,10 @@ export class ReviewTab implements vscode.Disposable {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "media")],
+        localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "resources"), vscode.Uri.joinPath(this.extensionUri, "vscode", "resources")],
       },
     );
-    panel.webview.html = webviewHtml(panel.webview, this.extensionUri, {
+    panel.webview.html = webviewHtml(panel.webview, this.extensionUri, "review-tab", {
       html: "review.html",
       css: "review.css",
       js: "review.js",
