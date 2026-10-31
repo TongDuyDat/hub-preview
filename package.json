@@ -241,7 +241,8 @@
     "test": "node scripts/test.mjs",
     "build:mcp": "node esbuild.js",
     "pack:mcp": "node esbuild.js && cd mcp && npm pack",
-    "publish:mcp": "node esbuild.js && cd mcp && npm publish --access public"
+    "publish:mcp": "node esbuild.js && cd mcp && npm publish --access public",
+    "package:vscode": "cd vscode && vsce package --no-dependencies"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
@@ -261,5 +262,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/TongDuyDat/hub-preview"
-  }
+  },
+  "workspaces": [
+    "core",
+    "mcp",
+    "vscode"
+  ]
 }
