@@ -39,3 +39,4 @@ class CopyAgentRulesAction : AnAction("Copy AI Agent Rules") {
         )
     }
 }
+

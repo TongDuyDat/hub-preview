@@ -67,3 +67,4 @@ In agent harnesses that support disabling specific tools (such as **Cline** or *
 3. Keep `use_mcp_tool` enabled.
 
 This forces the AI agent to use Review Hub's MCP tools 100% of the time.
+
