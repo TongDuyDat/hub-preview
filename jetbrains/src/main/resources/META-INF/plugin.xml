@@ -79,6 +79,11 @@
                     text="Copy MCP Config"
                     description="Copy JSON configuration for AI Tools (Claude Code, Cline, Roo Code)"
                     icon="AllIcons.Actions.Copy"/>
+            <action id="ReviewHub.CopyAgentRules"
+                    class="com.reviewhub.actions.CopyAgentRulesAction"
+                    text="Copy AI Agent Rules"
+                    description="Copy instruction rules for AI Tools (CLAUDE.md, .cursorrules, .clinerules, AGENTS.md)"
+                    icon="AllIcons.FileTypes.Text"/>
             <action id="ReviewHub.RegisterMcp"
                     class="com.reviewhub.actions.RegisterMcpAction"
                     text="Register MCP in AI Tools"
@@ -101,6 +106,7 @@
             <reference ref="ReviewHub.RejectAll"/>
             <separator/>
             <reference ref="ReviewHub.CopyMcpConfig"/>
+            <reference ref="ReviewHub.CopyAgentRules"/>
             <reference ref="ReviewHub.RegisterMcp"/>
             <separator/>
             <reference ref="ReviewHub.Refresh"/>

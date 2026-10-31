@@ -111,6 +111,11 @@
         "command": "review-hub.copyMcpConfig",
         "title": "Review Hub: Copy MCP Config for AI Tools",
         "icon": "$(copy)"
+      },
+      {
+        "command": "review-hub.copyAgentRules",
+        "title": "Review Hub: Copy AI Agent Rules to Clipboard",
+        "icon": "$(book)"
       }
     ],
     "viewsContainers": {
@@ -152,6 +157,16 @@
           "command": "review-hub.refresh",
           "when": "view == review-hub.changes",
           "group": "navigation@4"
+        },
+        {
+          "command": "review-hub.copyMcpConfig",
+          "when": "view == review-hub.changes",
+          "group": "navigation@5"
+        },
+        {
+          "command": "review-hub.copyAgentRules",
+          "when": "view == review-hub.changes",
+          "group": "navigation@6"
         }
       ],
       "explorer/context": [

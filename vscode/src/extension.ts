@@ -786,6 +786,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       refreshUi();
     }),
     vscode.commands.registerCommand("review-hub.copyMcpConfig", () => copyMcpConfigSnippet()),
+    vscode.commands.registerCommand("review-hub.copyAgentRules", () => copyAgentRulesSnippet()),
     vscode.commands.registerCommand("review-hub.registerMcp", () => copyMcpConfigSnippet()),
     vscode.commands.registerCommand("review-hub.installInstructions", () => installInstructions()),
     vscode.commands.registerCommand("review-hub.showHubInfo", async () => {
@@ -909,6 +910,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   logger.info("Review Hub activated");
 }
 
+export const AGENT_RULES_BLOCK = [
+  "<!-- review-hub:start -->",
+  "## Review Hub (required)",
+  "",
+  "This project uses Review Hub to review AI edits. **Do not use the built-in `edit`,",
+  "`write`, or shell commands to modify source files.** Use the Review Hub MCP tools",
+  "instead, so every change is recorded and the user can accept or reject each hunk:",
+  "",
+  "- `mcp__review_hub__propose_edit` — change a file. Same arguments as the native edit",
+  "  tool: `path`, `old_string`, `new_string`, optional `replace_all`.",
+  "  **Use this instead of `edit`.**",
+  "- `mcp__review_hub__propose_write` — create or replace a whole file (`path`, `content`).",
+  "  **Use this instead of `write`.**",
+  "- `mcp__review_hub__propose_delete` — delete a file (`path`).",
+  "  **Use this instead of `rm`**.",
+  "- `mcp__review_hub__read_file` — read a file (`path`).",
+  "- `mcp__review_hub__list_changes` — list files changed since the last accepted checkpoint.",
+  "- Review Hub **does not write your edit to disk until the user accepts it**. Reading the file",
+  "  with your own tools will show the OLD content — that is expected, not a failed edit.",
+  "- Use the `read_file` tool (not `cat`/Read) to see the content you have staged so far.",
+  "",
+  "A `propose_*` call returns `status: \"staged_for_review\"` with a `changeId`. That is",
+  "**success, not an error**. The edit is staged and the user reviews it; do not retry with",
+  "a different tool and do not ask for confirmation.",
+  "",
+  "Only fall back to the built-in tools if a Review Hub tool returns an error saying the hub",
+  "is unreachable.",
+  "<!-- review-hub:end -->",
+  "",
+].join("\n");
+
+async function copyAgentRulesSnippet(): Promise<void> {
+  await vscode.env.clipboard.writeText(AGENT_RULES_BLOCK);
+  void vscode.window.showInformationMessage(
+    "Review Hub AI agent rules copied to clipboard! Paste it into CLAUDE.md, .cursorrules, .clinerules, or AGENTS.md in your project root.",
+  );
+}
+
 async function copyMcpConfigSnippet(): Promise<void> {
   const config = {
     mcpServers: {
@@ -930,39 +969,10 @@ async function installInstructions(): Promise<void> {
     void vscode.window.showWarningMessage("Review Hub: open a folder first.");
     return;
   }
-  const block = [
-    "<!-- review-hub:start -->",
-    "## Review Hub (required)",
-    "",
-    "This project uses Review Hub to review AI edits. **Do not use the built-in `edit`,",
-    "`write`, or shell commands to modify source files.** Use the Review Hub MCP tools",
-    "instead, so every change is recorded and the user can accept or reject each hunk:",
-    "",
-    "- `mcp__review_hub__propose_edit` — change a file. Same arguments as the native edit",
-    "  tool: `path`, `old_string`, `new_string`, optional `replace_all`.",
-    "  **Use this instead of `edit`.**",
-    "- `mcp__review_hub__propose_write` — create or replace a whole file (`path`, `content`).",
-    "  **Use this instead of `write`.**",
-    "- `mcp__review_hub__propose_delete` — delete a file (`path`).",
-    "  **Use this instead of `rm`**.",
-    "- `mcp__review_hub__read_file` — read a file (`path`).",
-    "- `mcp__review_hub__list_changes` — list files changed since the last accepted checkpoint.",
-    "- Review Hub **does not write your edit to disk until the user accepts it**. Reading the file",
-    "  with your own tools will show the OLD content — that is expected, not a failed edit.",
-    "- Use the `read_file` tool (not `cat`/Read) to see the content you have staged so far.",
-    "",
-    "A `propose_*` call returns `status: \"staged_for_review\"` with a `changeId`. That is",
-    "**success, not an error**. The edit is staged and the user reviews it; do not retry with",
-    "a different tool and do not ask for confirmation.",
-    "",
-    "Only fall back to the built-in tools if a Review Hub tool returns an error saying the hub",
-    "is unreachable.",
-    "<!-- review-hub:end -->",
-    "",
-  ].join("\n");
+  const block = AGENT_RULES_BLOCK;
 
   for (const folder of folders) {
-    for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+    for (const name of ["AGENTS.md", "CLAUDE.md", ".clinerules", ".cursorrules", ".windsurfrules"]) {
       const file = vscode.Uri.joinPath(folder.uri, name);
       let existing = "";
       try {
@@ -975,7 +985,7 @@ async function installInstructions(): Promise<void> {
       await vscode.workspace.fs.writeFile(file, Buffer.from(next, "utf8"));
     }
   }
-  void vscode.window.showInformationMessage("Review Hub: agent instructions installed in AGENTS.md / CLAUDE.md.");
+  void vscode.window.showInformationMessage("Review Hub: agent instructions installed in AGENTS.md, CLAUDE.md, .clinerules, .cursorrules, .windsurfrules.");
 }
 
 export async function deactivate(): Promise<void> {
