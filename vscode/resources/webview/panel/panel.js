@@ -1,7 +1,6 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const root = document.getElementById("root");
-  const expanded = new Set();
   let state = null;
 
   function send(command, payload) {
@@ -25,63 +24,20 @@
     return b;
   }
 
-  function renderHunk(file, hunk) {
-    const row = el("div", "hunk hunk-" + hunk.decision);
-    row.appendChild(el("span", "line", "@line " + hunk.anchorLine));
-    row.appendChild(el("span", "stat", "+" + hunk.added + " \u2212" + hunk.removed));
+  function renderFile(file) {
+    const row = el("div", "file-row");
+    row.appendChild(el("span", "name", file.name));
+    if (file.dir) row.appendChild(el("span", "dir", file.dir));
+    if (file.isNew) row.appendChild(el("span", "badge ok", "new"));
+    if (file.isDeleted) row.appendChild(el("span", "badge no", "deleted"));
+    if (file.binary) row.appendChild(el("span", "badge", "binary"));
     row.appendChild(el("span", "spacer"));
-    if (hunk.decision === "accepted") {
-      row.appendChild(el("span", "badge ok", "\u2713 accepted"));
-      row.appendChild(button("\u21ba", "Undo — reject this hunk", function () {
-        send("rejectHunk", { changeId: file.id, hunkId: hunk.id });
-      }));
-    } else if (hunk.decision === "rejected") {
-      row.appendChild(el("span", "badge no", "\u2717 rejected"));
-      row.appendChild(button("\u2713", "Undo — accept this hunk", function () {
-        send("acceptHunk", { changeId: file.id, hunkId: hunk.id });
-      }));
-    } else {
-      row.appendChild(button("\u2713", "Accept this hunk", function () {
-        send("acceptHunk", { changeId: file.id, hunkId: hunk.id });
-      }));
-      row.appendChild(button("\u21ba", "Reject this hunk", function () {
-        send("rejectHunk", { changeId: file.id, hunkId: hunk.id });
-      }));
-    }
+    if (file.added > 0) row.appendChild(el("span", "stat add", "+" + file.added));
+    if (file.removed > 0) row.appendChild(el("span", "stat del", "\u2212" + file.removed));
     row.addEventListener("click", function () {
-      send("openHunk", { changeId: file.id, hunkId: hunk.id });
-    });
-    return row;
-  }
-
-    function renderFile(file) {
-    const wrap = el("div", "file");
-    const head = el("div", "file-head");
-    const open = expanded.has(file.id);
-    const twisty = el("span", "twisty", open ? "\u25be" : "\u25b8");
-    twisty.addEventListener("click", function (e) {
-      e.stopPropagation();
-      if (expanded.has(file.id)) expanded.delete(file.id);
-      else expanded.add(file.id);
-      render(state);
-    });
-    head.appendChild(twisty);
-    head.appendChild(el("span", "name", file.name));
-    if (file.dir) head.appendChild(el("span", "dir", file.dir));
-    if (file.isNew) head.appendChild(el("span", "badge ok", "new"));
-    if (file.isDeleted) head.appendChild(el("span", "badge no", "deleted"));
-    if (file.binary) head.appendChild(el("span", "badge", "binary"));
-    head.appendChild(el("span", "spacer"));
-    if (file.added > 0) head.appendChild(el("span", "stat add", "+" + file.added));
-    if (file.removed > 0) head.appendChild(el("span", "stat del", "\u2212" + file.removed));
-    head.addEventListener("click", function () {
       send("openFile", { changeId: file.id });
     });
-    wrap.appendChild(head);
-    if (open) {
-      for (const hunk of file.hunks) wrap.appendChild(renderHunk(file, hunk));
-    }
-    return wrap;
+    return row;
   }
 
   function render(next) {

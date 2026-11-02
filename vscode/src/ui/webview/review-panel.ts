@@ -20,6 +20,7 @@ export interface PanelActions {
   rejectAll(): void;
   openHunk(changeId: string, hunkId: string): void;
   openDiff(changeId: string): void;
+  openFile(changeId: string): void;
   setCheckpoint(): void;
 }
 
@@ -96,6 +97,9 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
         return;
       case "openDiff":
         if (changeId) this.actions.openDiff(changeId);
+        return;
+      case "openFile":
+        if (changeId) this.actions.openFile(changeId);
         return;
       case "setCheckpoint":
         this.actions.setCheckpoint();
