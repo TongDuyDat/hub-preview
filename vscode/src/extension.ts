@@ -249,36 +249,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === fsPath);
         if (doc) {
           if (fs.existsSync(fsPath)) {
-            const diskContent = fs.readFileSync(fsPath, "utf8");
-            if (doc.getText() !== diskContent) {
-              const full = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
-              const edit = new vscode.WorkspaceEdit();
-              edit.replace(doc.uri, full, diskContent);
-              await vscode.workspace.applyEdit(edit);
-            }
-            if (doc.isDirty) {
-              await doc.save();
-            }
+            await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false });
+            await vscode.commands.executeCommand("workbench.action.files.revert");
           } else {
-            try {
-              watcher.noteSelfWrite(fsPath);
-              fs.writeFileSync(fsPath, "");
-              const full = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
-              const edit = new vscode.WorkspaceEdit();
-              edit.replace(doc.uri, full, "");
-              await vscode.workspace.applyEdit(edit);
-              await doc.save();
-              fs.unlinkSync(fsPath);
-            } catch {
-              // best effort
-            }
-            for (const group of vscode.window.tabGroups?.all ?? []) {
-              for (const tab of group.tabs) {
-                if (tab.input instanceof vscode.TabInputText && tab.input.uri.fsPath === fsPath) {
-                  await vscode.window.tabGroups.close(tab);
-                }
-              }
-            }
+            await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false });
+            await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
           }
         }
       } catch (err) {
