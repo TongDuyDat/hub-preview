@@ -52,7 +52,7 @@ function readConfig(): Config {
   const merged = Array.from(new Set([...DEFAULT_EXCLUDES, ...userExcludes]));
   return {
     enabled: c.get("enabled", true),
-    watchDirectWrites: c.get("watchDirectWrites", true),
+    watchDirectWrites: c.get("watchDirectWrites", false),
     maxFileSize: c.get("maxFileSize", 2 * 1024 * 1024),
     excludeGlobs: merged,
     ignoreWhitespace: c.get("ignoreWhitespace", false),
@@ -182,7 +182,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const rel = fsPath.slice(root.length + 1).split("\\").join("/");
       const cs = hub.store.findChangeByPath(root, rel);
-      if (cs) {
+      if (cs && cs.origin === "mcp") {
         return cs;
       }
     }
@@ -364,7 +364,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const source: PanelSource = {
     workspaces: () => workspaceFolders(),
     checkpoint: (ws) => hub.store.checkpointInfo(ws),
-    changeSets: (ws) => hub.store.listChangeSets(ws),
+    changeSets: (ws) => hub.store.listChangeSets(ws).filter((cs) => cs.origin === "mcp"),
   };
 
   // `openReviewTab` is assigned below (after `tab` exists) but the action closures and the
@@ -521,9 +521,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     DEFAULT_INCLUDE_EXTENSIONS,
   );
-  if (config.watchDirectWrites) {
-    watcher.start();
-  }
+  // External disk watcher is disabled: only MCP data is tracked.
+  // if (config.watchDirectWrites) { watcher.start(); }
 
   // Route hub events (the MCP path) into the same UI refresh + auto-open as the watcher.
   hubChanged = (workspace, relPath) => {
@@ -621,7 +620,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = "review-hub.openChanges";
   const updateStatus = () => {
-    const total = source.workspaces().reduce((n, ws) => n + hub.store.listChanges(ws).length, 0);
+    const total = source.workspaces().reduce((n, ws) => n + source.changeSets(ws).length, 0);
     if (total === 0) {
       status.hide();
       return;
@@ -657,7 +656,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const rel = fsPath.slice(root.length + 1).split("\\").join("/");
         const cs = hub.store.findChangeByPath(root, rel);
-        if (cs) {
+      if (cs && cs.origin === "mcp") {
           return cs.id;
         }
       }
@@ -931,7 +930,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** Resolve every change across the given workspaces. */
   async function decideMany(workspaces: string[], kind: "accept" | "reject"): Promise<void> {
-    const total = workspaces.reduce((n, ws) => n + hub.store.listChangeSets(ws).length, 0);
+    const total = workspaces.reduce((n, ws) => n + hub.store.listChangeSets(ws).filter((cs) => cs.origin === "mcp").length, 0);
     if (total === 0) {
       void vscode.window.showInformationMessage("Review Hub: nothing to review.");
       return;
@@ -952,7 +951,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     let reloaded = 0;
     for (const ws of workspaces) {
-      for (const s of hub.store.listChangeSets(ws)) {
+      for (const s of hub.store.listChangeSets(ws).filter((cs) => cs.origin === "mcp")) {
         if (kind === "accept") {
           hub.store.accept(s.id);
         } else {

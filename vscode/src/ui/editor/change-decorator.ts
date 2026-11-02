@@ -123,7 +123,7 @@ export class ChangeDecorator implements vscode.Disposable {
       }
       const rel = fsPath.slice(root.length + 1);
       const cs = this.store.findChangeByPath(ws.uri.fsPath, rel);
-      if (cs) {
+      if (cs && cs.origin === "mcp") {
         return cs;
       }
     }
