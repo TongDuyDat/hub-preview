@@ -16,6 +16,11 @@
 import { buildStagedText, pendingCount, stageSkipReason, type StageSkipReason } from "./staged-content";
 import type { ChangeSet } from "../../../../core/src/types";
 
+function normFs(p: string): string {
+  const norm = p.replace(/\\/g, "/");
+  return process.platform === "win32" ? norm.toLowerCase() : norm;
+}
+
 export type StageNotice = StageSkipReason | "save-blocked";
 
 /** Context key the editor-title Accept/Reject buttons are gated on (`package.json`). */
@@ -56,6 +61,7 @@ interface Entry {
   changeId: string;
   /** True while our own `replace()` is in flight, so its change event is not mistaken for typing. */
   applying: boolean;
+  rawPath: string;
 }
 
 export class StagedReview {
@@ -89,11 +95,11 @@ export class StagedReview {
   }
 
   isStaged(fsPath: string): boolean {
-    return this.entries.has(fsPath);
+    return this.entries.has(normFs(fsPath));
   }
 
   changeIdFor(fsPath: string): string | undefined {
-    return this.entries.get(fsPath)?.changeId;
+    return this.entries.get(normFs(fsPath))?.changeId;
   }
 
   stagedCount(): number {
@@ -105,7 +111,7 @@ export class StagedReview {
    * reverts exactly these and nothing else — never a document the engine does not own (spec F3).
    */
   stagedPaths(): string[] {
-    return [...this.entries.keys()];
+    return [...this.entries.values()].map((e) => e.rawPath);
   }
 
   /** Stage one change's file (spec D1). Returns true when the buffer shows the merged view. */
@@ -114,7 +120,7 @@ export class StagedReview {
     if (!cs) {
       return false;
     }
-    const held = this.entries.get(cs.absPath);
+    const held = this.entries.get(normFs(cs.absPath));
     if (held?.changeId === changeId) {
       return true;
     }
@@ -123,14 +129,14 @@ export class StagedReview {
       this.noticeOnce(reason, changeId);
       return false;
     }
-    if (this.busy.has(cs.absPath)) {
+    if (this.busy.has(normFs(cs.absPath))) {
       return false;
     }
     const text = buildStagedText(cs);
     if (text === undefined) {
       return false;
     }
-    this.busy.add(cs.absPath);
+    this.busy.add(normFs(cs.absPath));
     try {
       const doc = await this.host.open(cs.absPath);
       if (!doc || doc.uri.scheme !== "file") {
@@ -142,15 +148,15 @@ export class StagedReview {
       }
       this.remember(cs.absPath, changeId);
       if (doc.getText() !== text) {
-        const entry = this.entries.get(cs.absPath)!;
+        const entry = this.entries.get(normFs(cs.absPath))!;
         entry.applying = true;
         try {
           const ok = await this.host.replace(cs.absPath, text);
           if (!ok) {
-            this.entries.delete(cs.absPath);
+            this.entries.delete(normFs(cs.absPath));
             return false;
           }
-          this.viewTexts.set(cs.absPath, text);
+          this.viewTexts.set(normFs(cs.absPath), text);
         } finally {
           entry.applying = false;
         }
@@ -160,7 +166,7 @@ export class StagedReview {
         this.viewTexts.set(cs.absPath, text);
       }
     } finally {
-      this.busy.delete(cs.absPath);
+      this.busy.delete(normFs(cs.absPath));
     }
     this.syncContext();
     this.host.onStaged();
@@ -177,7 +183,7 @@ export class StagedReview {
     if (!fsPath) {
       return false;
     }
-    const entry = this.entries.get(fsPath);
+    const entry = this.entries.get(normFs(fsPath));
     if (!entry || entry.changeId !== changeId) {
       return false;
     }
@@ -190,7 +196,7 @@ export class StagedReview {
       return false;
     }
     if (pendingCount(cs) === 0) {
-      this.viewTexts.delete(fsPath);
+      this.viewTexts.delete(normFs(fsPath));
       await this.unstage(changeId, { revert: true });
       return false;
     }
@@ -212,7 +218,7 @@ export class StagedReview {
       await this.unstage(changeId);
       return false;
     }
-    this.viewTexts.set(fsPath, text);
+    this.viewTexts.set(normFs(fsPath), text);
     this.host.onStaged();
     return true;
   }
@@ -221,7 +227,7 @@ export class StagedReview {
   async unstage(changeId: string, opts: { revert?: boolean } = {}): Promise<void> {
     const fsPath = this.pathOf(changeId);
     if (fsPath) {
-      this.entries.delete(fsPath);
+      this.entries.delete(normFs(fsPath));
       if (opts.revert) {
         await this.host.revert(fsPath);
       }
@@ -237,7 +243,7 @@ export class StagedReview {
   adoptOpenDocuments(): number {
     let adopted = 0;
     for (const doc of this.host.documents()) {
-      if (doc.uri.scheme !== "file" || this.entries.has(doc.uri.fsPath)) {
+      if (doc.uri.scheme !== "file" || this.entries.has(normFs(doc.uri.fsPath))) {
         continue;
       }
       const cs = this.host.changeForPath(doc.uri.fsPath);
@@ -249,7 +255,7 @@ export class StagedReview {
         this.remember(doc.uri.fsPath, cs.id);
         // The exact match proves this buffer holds the view — established by us in an
         // earlier session — so it enters the save guard's view-text check like the rest (C22).
-        this.viewTexts.set(doc.uri.fsPath, text);
+        this.viewTexts.set(normFs(doc.uri.fsPath), text);
         adopted++;
       }
     }
@@ -269,7 +275,7 @@ export class StagedReview {
   }
 
   private async stageOnOpen(fsPath: string): Promise<void> {
-    if (this.entries.has(fsPath) || this.busy.has(fsPath)) {
+    if (this.entries.has(normFs(fsPath)) || this.busy.has(normFs(fsPath))) {
       return;
     }
     const cs = this.host.changeForPath(fsPath);
@@ -282,24 +288,27 @@ export class StagedReview {
     if (doc.uri.scheme !== "file") {
       return;
     }
-    const entry = this.entries.get(doc.uri.fsPath);
+    const entry = this.entries.get(normFs(doc.uri.fsPath));
     if (!entry || entry.applying) {
       return;
     }
     const cs = this.host.findById(entry.changeId);
     const staged = cs ? buildStagedText(cs) : undefined;
-    if (staged !== undefined && doc.getText() === staged) {
-      return; // our own edit, delivered after `replace()` settled
+    if (staged !== undefined) {
+      const normDoc = doc.getText().replace(/\r\n/g, "\n");
+      const normStaged = staged.replace(/\r\n/g, "\n");
+      if (normDoc === normStaged) return;
     }
+
     // The user typed into the staged view (spec D7): lift the staging, keep the record.
     this.unstage(entry.changeId);
   }
 
   private handleWillSave(fsPath: string, prevent: () => void, text?: string): void {
-    const entry = this.entries.get(fsPath);
+    const entry = this.entries.get(normFs(fsPath));
     // A buffer whose text is exactly the view we established holds the view — which is
     // precisely what an undo of a neutralized save restores, entry or not (C21/FINAL-1).
-    if (text !== undefined && text === this.viewTexts.get(fsPath)) {
+    if (text !== undefined && text === this.viewTexts.get(normFs(fsPath))) {
       // Refuse this save: writing view text would put the interleaved old+new blocks on
       // disk while hunks are pending (spec F1) — the neutralized save lifts staging, so
       // `entry` may well be gone already.
@@ -331,14 +340,15 @@ export class StagedReview {
   }
 
   private remember(fsPath: string, changeId: string): void {
-    const applying = this.entries.get(fsPath)?.applying ?? false;
-    this.entries.set(fsPath, { changeId, applying });
+    const key = normFs(fsPath);
+    const applying = this.entries.get(key)?.applying ?? false;
+    this.entries.set(key, { changeId, applying, rawPath: fsPath });
   }
 
   private pathOf(changeId: string): string | undefined {
-    for (const [fsPath, entry] of this.entries) {
+    for (const entry of this.entries.values()) {
       if (entry.changeId === changeId) {
-        return fsPath;
+        return entry.rawPath;
       }
     }
     return undefined;

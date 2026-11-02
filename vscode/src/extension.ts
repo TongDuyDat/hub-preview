@@ -1,4 +1,4 @@
-import { normalizeWorkspace } from "../../core/src/file-snapshot";
+import { normalizeWorkspace, normalizeAbsPath } from "../../core/src/file-snapshot";
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -238,7 +238,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     replace: async (fsPath, text) => {
       try {
-        const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === fsPath);
+        const norm = normalizeAbsPath(fsPath);
+        const doc = vscode.workspace.textDocuments.find((d) => normalizeAbsPath(d.uri.fsPath) === norm);
         if (!doc) {
           return false;
         }
@@ -252,7 +253,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     revert: async (fsPath) => {
       try {
-        const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === fsPath);
+        const norm = normalizeAbsPath(fsPath);
+        const doc = vscode.workspace.textDocuments.find((d) => normalizeAbsPath(d.uri.fsPath) === norm);
         if (doc) {
           if (fs.existsSync(fsPath)) {
             await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false });
@@ -367,6 +369,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(cs.absPath));
       const editor = await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false, viewColumn: vscode.ViewColumn.One });
+      await staged.stage(cs.id);
       if (hunkId) {
         const hunk = cs.hunks.find((h) => h.id === hunkId);
         if (hunk) {

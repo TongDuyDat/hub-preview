@@ -9,8 +9,10 @@ export function reloadOpenEditors(
   revert: (uri: { scheme: string; fsPath: string }) => void,
 ): number {
   let reloaded = 0; // counter of reloaded editors
+  const norm = absPath.replace(/\\/g, "/").toLowerCase();
   for (const doc of documents) {
-    if (doc.uri.scheme !== "file" || doc.uri.fsPath !== absPath || doc.isDirty) {
+    const docNorm = doc.uri.fsPath.replace(/\\/g, "/").toLowerCase();
+    if (doc.uri.scheme !== "file" || docNorm !== norm || doc.isDirty) {
       continue;
     }
     revert(doc.uri);
