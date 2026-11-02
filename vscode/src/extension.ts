@@ -39,11 +39,11 @@ interface Config {
  */
 let runtime:
   | {
-      store: ChangeStore;
-      workspaces: () => string[];
-      log: (message: string) => void;
-      staged: StagedReview;
-    }
+    store: ChangeStore;
+    workspaces: () => string[];
+    log: (message: string) => void;
+    staged: StagedReview;
+  }
   | undefined;
 
 function readConfig(): Config {
@@ -357,7 +357,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // it does not *run* before that const is initialised.
   let openReviewTab: (changeId: string, targetHunkId?: string) => void;
 
-    const openRealFile = async (changeId: string, hunkId?: string) => {
+  const openRealFile = async (changeId: string, hunkId?: string) => {
     const cs = hub.store.findById(changeId);
     if (!cs) return;
     try {
@@ -640,7 +640,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const rel = fsPath.slice(root.length + 1).split("\\").join("/");
         const cs = hub.store.findChangeByPath(root, rel);
-      if (cs && cs.origin === "mcp") {
+        if (cs && cs.origin === "mcp") {
           return cs.id;
         }
       }
@@ -926,8 +926,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const label = kind === "accept" ? "Accept" : "Reject";
     const where = workspaces.length === 1 ? path.basename(workspaces[0]) : `${workspaces.length} projects`;
     const choice = await vscode.window.showWarningMessage(
-      `${label} all changes in ${where}? ${total} file${total === 1 ? "" : "s"} will be ${
-        kind === "accept" ? "kept" : "reverted to their baseline"
+      `${label} all changes in ${where}? ${total} file${total === 1 ? "" : "s"} will be ${kind === "accept" ? "kept" : "reverted to their baseline"
       }.`,
       { modal: true },
       label,

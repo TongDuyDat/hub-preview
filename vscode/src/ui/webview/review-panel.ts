@@ -128,43 +128,6 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
       case "nextHunk":
         void vscode.commands.executeCommand("workbench.action.editor.nextChange");
         return;
-      case "openMoreMenu":
-        void (async () => {
-          const items: (vscode.QuickPickItem & { command: string })[] = [
-            {
-              label: "$(copy) Copy MCP Config",
-              description: "JSON configuration for Claude Code, Cline, Roo Code",
-              command: "review-hub.copyMcpConfig",
-            },
-            {
-              label: "$(file-text) Copy AI Agent Rules",
-              description: "Instructions for AGENTS.md, .cursorrules, .clinerules",
-              command: "review-hub.copyAgentRules",
-            },
-            {
-              label: "$(gear) Register MCP in AI Tools",
-              description: "Auto-register into Claude Code, Cline, Roo Code",
-              command: "review-hub.registerMcp",
-            },
-            {
-              label: "$(globe) Open Website & Documentation",
-              description: "https://hungtx2001.github.io/review-hub/",
-              command: "review-hub.openWebsite",
-            },
-            {
-              label: "$(info) Hub Info & Status",
-              description: "View port, token and server status",
-              command: "review-hub.showHubInfo",
-            },
-          ];
-          const pick = await vscode.window.showQuickPick(items, {
-            placeHolder: "Review Hub - Setup & Actions",
-          });
-          if (pick) {
-            void vscode.commands.executeCommand(pick.command);
-          }
-        })();
-        return;
       default:
         return;
     }

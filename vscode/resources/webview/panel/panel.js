@@ -99,15 +99,6 @@
     gSync.appendChild(toolButton("refresh", "Refresh Changes", "", function () { send("refresh"); }));
     bar.appendChild(gSync);
 
-    bar.appendChild(el("div", "spacer"));
-
-    // Group 4: More Actions (...)
-    const gMore = el("div", "tool-group");
-    gMore.appendChild(toolButton("more", "More Actions (Setup AI Tools, Rules, Docs...)", "", function () {
-      send("openMoreMenu");
-    }));
-    bar.appendChild(gMore);
-
     return bar;
   }
 
@@ -215,6 +206,11 @@
       btnReg.title = "Auto-register MCP server in Claude Code, Cline, Roo Code";
       btnReg.addEventListener("click", function () { send("registerMcp"); });
       setupDiv.appendChild(btnReg);
+
+      const btnWeb = el("button", "setup-pill", "🌐 Docs");
+      btnWeb.title = "Open Review Hub official website and documentation";
+      btnWeb.addEventListener("click", function () { send("openWebsite"); });
+      setupDiv.appendChild(btnWeb);
 
       empty.appendChild(setupDiv);
       content.appendChild(empty);
