@@ -12,6 +12,12 @@
   --jb-red: #f85149;
 }
 
+html {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -20,7 +26,8 @@ body {
   color: var(--jb-text-primary);
   background: var(--vscode-sideBar-background, var(--jb-bg));
   user-select: none;
-  height: 100vh;
+  height: 100%;
+  width: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -31,12 +38,24 @@ body {
   box-sizing: inherit;
 }
 
+#root {
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
 /* Toolbar styling - exact JetBrains toolbar */
 .jb-toolbar {
   display: flex;
   align-items: center;
   padding: 2px 6px;
   height: 28px;
+  min-height: 28px;
   gap: 2px;
   border-bottom: 1px solid var(--jb-border);
   background: var(--vscode-sideBar-background, var(--jb-bg));
@@ -102,7 +121,8 @@ body {
 
 /* Content container */
 .jb-content {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
@@ -111,7 +131,8 @@ body {
 
 /* Empty State - centered exactly like JetBrains */
 .empty-container {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -299,13 +320,15 @@ body {
   color: var(--jb-red);
 }
 
-/* Status Bar at bottom - exact JetBrains */
+/* Status Bar pinned to the absolute bottom ("dòng cuối cùng") */
 .jb-statusbar {
+  margin-top: auto;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
   height: 26px;
+  min-height: 26px;
   border-top: 1px solid var(--jb-border);
   font-size: 11.5px;
   color: var(--jb-text-secondary);
