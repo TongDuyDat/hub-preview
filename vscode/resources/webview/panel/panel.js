@@ -139,12 +139,12 @@
     }
     const menu = el("div", "jb-dropdown-menu");
     const items = [
-      { label: "📋 Copy MCP Config", title: "Copy JSON configuration for AI Tools", cmd: "copyMcpConfig" },
-      { label: "📄 Copy AI Agent Rules", title: "Copy instruction rules for AI Tools", cmd: "copyAgentRules" },
-      { label: "⚙ Register MCP in AI Tools", title: "Auto-register MCP into Claude Code, Cline, Roo Code", cmd: "registerMcp" },
+      { label: "Copy MCP Config", title: "Copy JSON configuration for AI Tools", cmd: "copyMcpConfig" },
+      { label: "Copy AI Agent Rules", title: "Copy instruction rules for AI Tools", cmd: "copyAgentRules" },
+      { label: "Register MCP in AI Tools", title: "Auto-register MCP into Claude Code, Cline, Roo Code", cmd: "registerMcp" },
       { sep: true },
-      { label: "🌐 Open Website & Docs", title: "Open Review Hub documentation", cmd: "openWebsite" },
-      { label: "ℹ Hub Info & Status", title: "View port, token and server status", cmd: "showHubInfo" }
+      { label: "Open Website & Docs", title: "Open Review Hub documentation", cmd: "openWebsite" },
+      { label: "Hub Info & Status", title: "View port, token and server status", cmd: "showHubInfo" }
     ];
 
     for (const it of items) {
@@ -295,30 +295,6 @@
       const empty = el("div", "empty-container");
       empty.appendChild(el("div", "empty-title", "No pending changes"));
       empty.appendChild(el("div", "empty-desc", "Edits proposed by AI coding agents will appear here for review."));
-
-      // Helpful Setup Actions right when empty
-      const setupDiv = el("div", "empty-setup-actions");
-      const btnMcp = el("button", "setup-pill", "📋 Copy MCP Config");
-      btnMcp.title = "Copy JSON configuration for Claude Code, Cline, Roo Code";
-      btnMcp.addEventListener("click", function () { send("copyMcpConfig"); });
-      setupDiv.appendChild(btnMcp);
-
-      const btnRules = el("button", "setup-pill", "📄 Agent Rules");
-      btnRules.title = "Copy AI agent instructions (AGENTS.md, .cursorrules)";
-      btnRules.addEventListener("click", function () { send("copyAgentRules"); });
-      setupDiv.appendChild(btnRules);
-
-      const btnReg = el("button", "setup-pill", "⚙ Register Tools");
-      btnReg.title = "Auto-register MCP server in Claude Code, Cline, Roo Code";
-      btnReg.addEventListener("click", function () { send("registerMcp"); });
-      setupDiv.appendChild(btnReg);
-
-      const btnWeb = el("button", "setup-pill", "🌐 Docs");
-      btnWeb.title = "Open Review Hub official website and documentation";
-      btnWeb.addEventListener("click", function () { send("openWebsite"); });
-      setupDiv.appendChild(btnWeb);
-
-      empty.appendChild(setupDiv);
       content.appendChild(empty);
     } else {
       const list = el("div", "file-list");

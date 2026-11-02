@@ -203,35 +203,6 @@ body {
   max-width: 260px;
 }
 
-.empty-setup-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 18px;
-  flex-wrap: wrap;
-}
-
-.setup-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  border: 1px solid var(--jb-border);
-  background: var(--jb-hover-bg);
-  color: var(--jb-text-secondary);
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.setup-pill:hover {
-  background: var(--jb-active-bg);
-  color: var(--jb-text-primary);
-  border-color: rgba(255, 255, 255, 0.25);
-}
-
 /* File list */
 .file-list {
   display: flex;
