@@ -104,6 +104,21 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
       case "setCheckpoint":
         this.actions.setCheckpoint();
         return;
+      case "refresh":
+        void vscode.commands.executeCommand("review-hub.refresh");
+        return;
+      case "openWebsite":
+        void vscode.commands.executeCommand("review-hub.openWebsite");
+        return;
+      case "copyAgentRules":
+        void vscode.commands.executeCommand("review-hub.copyAgentRules");
+        return;
+      case "prevHunk":
+        void vscode.commands.executeCommand("workbench.action.editor.previousChange");
+        return;
+      case "nextHunk":
+        void vscode.commands.executeCommand("workbench.action.editor.nextChange");
+        return;
       default:
         return;
     }

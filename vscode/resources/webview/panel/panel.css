@@ -1,125 +1,308 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size, 13px);
-  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+  font-size: var(--vscode-font-size, 12px);
+  color: var(--vscode-foreground, #cccccc);
   background: transparent;
+  user-select: none;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
-.header,
-.actions,
-.file-head,
-.hunk {
+
+*, *:before, *:after {
+  box-sizing: inherit;
+}
+
+/* Toolbar styling - exact JetBrains toolbar */
+.jb-toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  padding: 3px 6px;
+  gap: 2px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  background: var(--vscode-sideBar-background, transparent);
+  flex-shrink: 0;
 }
-.header {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+
+.tool-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
 }
-.actions {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
-  flex-wrap: wrap;
+
+.tool-separator {
+  width: 1px;
+  height: 15px;
+  background: var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  margin: 0 4px;
 }
+
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground, #cccccc);
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.tool-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.1));
+}
+
+.tool-btn:active {
+  background: var(--vscode-toolbar-activeBackground, rgba(255, 255, 255, 0.18));
+}
+
+.tool-btn.accept-all:hover {
+  color: #4ade80;
+}
+
+.tool-btn.reject-all:hover {
+  color: #f87171;
+}
+
+.tool-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
 .spacer {
   flex: 1;
 }
-.count {
+
+/* Content container */
+.jb-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Empty State - centered like JetBrains */
+.empty-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 20px;
+}
+
+.empty-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--vscode-foreground, #dcdcdc);
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+
+.empty-desc {
+  font-size: 11.5px;
+  color: var(--vscode-descriptionForeground, #888888);
+  line-height: 1.45;
+  max-width: 250px;
+}
+
+.empty-checkpoint {
+  margin-top: 14px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #777777);
+  opacity: 0.85;
+}
+
+/* File list */
+.file-list {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+}
+
+.group-header {
+  padding: 6px 10px 2px;
   font-weight: 600;
-}
-.stat {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.9;
-}
-.stat.add {
-  color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
-}
-.stat.del {
-  color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149);
-}
-.btn {
-  background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.2));
-  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-  border: 1px solid var(--vscode-button-border, transparent);
-  border-radius: 3px;
-  padding: 1px 6px;
-  cursor: pointer;
-  font: inherit;
-  line-height: 1.6;
-}
-.btn:hover {
-  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.3));
-}
-.group {
-  padding: 8px 8px 2px;
-  font-weight: 600;
-  opacity: 0.8;
+  opacity: 0.75;
   text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--vscode-descriptionForeground, #999);
 }
-.file {
-  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
-}
-.file-head {
-  padding: 5px 8px;
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
   cursor: pointer;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.12));
+  transition: background 0.08s ease;
 }
-.file-head:hover {
-  background: var(--vscode-list-hoverBackground);
+
+.file-row:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
 }
-.twisty {
-  width: 12px;
-  opacity: 0.7;
-  cursor: pointer;
+
+.file-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.name {
-  font-weight: 600;
+
+.file-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: var(--vscode-foreground, #cccccc);
+  opacity: 0.8;
 }
-.dir {
-  opacity: 0.6;
-  font-size: 11px;
+
+.file-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-name {
+  font-weight: 500;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.hunk {
-  padding: 3px 8px 3px 26px;
-  cursor: pointer;
+
+.file-dir {
+  font-size: 10.5px;
+  color: var(--vscode-descriptionForeground, #858585);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
 }
-.hunk:hover {
-  background: var(--vscode-list-hoverBackground);
+
+.file-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
-.hunk .line,
-.hunk .stat {
-  opacity: 0.8;
-  font-variant-numeric: tabular-nums;
-}
+
 .badge {
-  font-size: 11px;
+  font-size: 10px;
   padding: 0 4px;
   border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 600;
 }
+
 .badge.ok {
-  color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
 }
+
 .badge.no {
-  color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149);
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
 }
-.empty {
-  padding: 16px 8px;
-  opacity: 0.7;
+
+.badge.bin {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.12);
 }
-.file-row {
+
+.file-stats {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.stat-add {
+  color: #4ade80;
+}
+
+.stat-del {
+  color: #f87171;
+}
+
+.file-actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+}
+
+.file-row:hover .file-actions {
+  display: flex;
+}
+
+.file-act-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--vscode-foreground, #ccc);
+  padding: 0;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.file-act-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.15));
+}
+
+.file-act-btn svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+.file-act-btn.accept:hover {
+  color: #4ade80;
+}
+
+.file-act-btn.reject:hover {
+  color: #f87171;
+}
+
+/* Status Bar at bottom - exact JetBrains */
+.jb-statusbar {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  cursor: pointer;
-  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #888888);
+  background: var(--vscode-sideBar-background, transparent);
+  flex-shrink: 0;
 }
-.file-row:hover {
-  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.1));
+
+.status-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
 }
