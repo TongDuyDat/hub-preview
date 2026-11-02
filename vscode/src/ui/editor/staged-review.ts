@@ -36,7 +36,7 @@ export interface StagedHost {
   /** Replace the whole document text (a `WorkspaceEdit` in the real host). */
   replace(fsPath: string, text: string): Promise<boolean>;
   /** Discard the buffer and reload the file from disk. */
-  revert(fsPath: string): void;
+  revert(fsPath: string): void | Promise<void>;
   /** The raw `files.autoSave` value. */
   autoSave(): string;
   findById(changeId: string): ChangeSet | undefined;
@@ -186,16 +186,17 @@ export class StagedReview {
       // holds only our view — any user keystroke would already have lifted staging in
       // handleTextChange, and adoption requires an exact match — so reloading disk destroys
       // nothing and lets the context key go honest again.
-      this.unstage(changeId, { revert: true });
+      await this.unstage(changeId, { revert: true });
       return false;
     }
     if (pendingCount(cs) === 0) {
-      this.unstage(changeId, { revert: true });
+      this.viewTexts.delete(fsPath);
+      await this.unstage(changeId, { revert: true });
       return false;
     }
     const text = buildStagedText(cs);
     if (text === undefined) {
-      this.unstage(changeId);
+      await this.unstage(changeId);
       return false;
     }
     entry.applying = true;
@@ -208,7 +209,7 @@ export class StagedReview {
     if (!ok) {
       // The buffer write failed: stop claiming we render the view and let the unstaged
       // fallback take over (mirrors stage()'s rollback on a failed replace).
-      this.unstage(changeId);
+      await this.unstage(changeId);
       return false;
     }
     this.viewTexts.set(fsPath, text);
@@ -217,12 +218,12 @@ export class StagedReview {
   }
 
   /** Stop staging a change. `revert` reloads the editor from disk (only used when they match). */
-  unstage(changeId: string, opts: { revert?: boolean } = {}): void {
+  async unstage(changeId: string, opts: { revert?: boolean } = {}): Promise<void> {
     const fsPath = this.pathOf(changeId);
     if (fsPath) {
       this.entries.delete(fsPath);
       if (opts.revert) {
-        this.host.revert(fsPath);
+        await this.host.revert(fsPath);
       }
     }
     this.syncContext();

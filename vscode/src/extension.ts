@@ -244,8 +244,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return false;
       }
     },
-    revert: (fsPath) =>
-      void vscode.commands.executeCommand("workbench.action.files.revert", vscode.Uri.file(fsPath)),
+    revert: async (fsPath) => {
+      try {
+        const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === fsPath);
+        if (doc) {
+          if (fs.existsSync(fsPath)) {
+            const diskContent = fs.readFileSync(fsPath, "utf8");
+            if (doc.getText() !== diskContent) {
+              const full = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+              const edit = new vscode.WorkspaceEdit();
+              edit.replace(doc.uri, full, diskContent);
+              await vscode.workspace.applyEdit(edit);
+            }
+            if (doc.isDirty) {
+              await doc.save();
+            }
+          } else {
+            try {
+              watcher.noteSelfWrite(fsPath);
+              fs.writeFileSync(fsPath, "");
+              const full = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+              const edit = new vscode.WorkspaceEdit();
+              edit.replace(doc.uri, full, "");
+              await vscode.workspace.applyEdit(edit);
+              await doc.save();
+              fs.unlinkSync(fsPath);
+            } catch {
+              // best effort
+            }
+            for (const group of vscode.window.tabGroups?.all ?? []) {
+              for (const tab of group.tabs) {
+                if (tab.input instanceof vscode.TabInputText && tab.input.uri.fsPath === fsPath) {
+                  await vscode.window.tabGroups.close(tab);
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        logger.error(`revert failed for ${fsPath}: ${String(err)}`);
+      }
+    },
     autoSave: () => vscode.workspace.getConfiguration("files").get("autoSave", "off"),
     findById: (changeId) => hub.store.findById(changeId),
     changeForPath,
@@ -693,6 +732,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The buffer is only a view: re-render it from the decisions just recorded. When the
       // last hunk is decided this hands the buffer back to disk (spec F1/F2).
       await staged.restage(changeId);
+      if (result.remaining === 0) {
+        await stagedHost.revert(cs.absPath);
+      }
       // diffView.refresh already triggers codeLens, diff provider, and refreshUi() once cleanly.
       await diffView.refresh(changeId);
       logger.info(
@@ -873,7 +915,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   async function decideFileById(changeId: string, kind: "accept" | "reject") {
+    const cs = hub.store.findById(changeId);
     await decide(changeId, undefined, kind);
+    if (cs) {
+      await stagedHost.revert(cs.absPath);
+    }
   }
 
   async function decideFile(arg: FileNode | undefined, kind: "accept" | "reject") {
@@ -916,13 +962,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (cs) {
           watcher.noteSelfWrite(cs.absPath);
           await staged.restage(cs.id);
-          if (!staged.changeIdFor(cs.absPath)) {
-            reloaded += reloadOpenEditors(
-              vscode.workspace.textDocuments,
-              vscode.Uri.file(cs.absPath).fsPath,
-              (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri),
-            );
-          }
+          await stagedHost.revert(cs.absPath);
         }
       }
     }
