@@ -339,6 +339,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const cs = hub.store.findById(changeId);
     if (!cs) return;
     try {
+      // If the file does not exist on disk yet (e.g. proposed new file), materialize it directly so it opens as a real file
+      if (!fs.existsSync(cs.absPath) && cs.proposedExists) {
+        fs.mkdirSync(path.dirname(cs.absPath), { recursive: true });
+        fs.writeFileSync(cs.absPath, cs.proposed, "utf8");
+        watcher.noteSelfWrite(cs.absPath);
+      }
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(cs.absPath));
       const editor = await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: false });
       if (hunkId) {
@@ -362,8 +368,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     rejectFile: (changeId) => void decideFileById(changeId, "reject"),
     acceptAll: () => void decideMany(workspaceFolders(), "accept"),
     rejectAll: () => void decideMany(workspaceFolders(), "reject"),
-    openHunk: (changeId, hunkId) => openReviewTab(changeId, hunkId),
-    openDiff: (changeId) => openReviewTab(changeId),
+    openHunk: (changeId, hunkId) => void openRealFile(changeId, hunkId),
+    openDiff: (changeId) => void openRealFile(changeId),
+    openFile: (changeId) => void openRealFile(changeId),
     setCheckpoint: () => void vscode.commands.executeCommand("review-hub.setCheckpoint"),
   };
   const panel = new ReviewPanelProvider(context.extensionUri, source, panelActions);
@@ -734,7 +741,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("review-hub.openDiff", async (arg?: FileNode | vscode.Uri | string) => {
       const changeId = await resolveChange(arg);
       if (changeId) {
-        tab.open(changeId);
+        await openRealFile(changeId);
       }
     }),
     // Open the classic side-by-side (baseline | proposed) diff instead of the merged view.
