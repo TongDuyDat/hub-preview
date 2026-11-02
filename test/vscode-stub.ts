@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 /**
  * Minimal VS Code surface for tests. Extends the dsh stub with the APIs Review Hub
  * uses: TreeView, FileSystemWatcher, TextDocumentContentProvider, CodeLens, tabGroups.
@@ -83,6 +84,9 @@ const stub = {
   __contentProviders: contentProviders,
   __webviews: webviews,
   __panels: panels,
+  __shownEditors: [] as { document: any; options: any; decorations: any[]; selection: any; revealRange(range: unknown): void }[],
+  __activeEditor: undefined as any,
+  __editorListeners: [] as { event: string; cb: (value: any) => void }[],
   /** Test hook: the documents `window.visibleTextEditors` should report. */
   __visibleEditors: [] as unknown[],
   /** Test hook: documents reported by `workspace.textDocuments`. */
@@ -139,6 +143,12 @@ const stub = {
   Range: class {
     constructor(readonly startLine: number, readonly startChar: number, readonly endLine: number, readonly endChar: number) {}
   },
+  Selection: class {
+    readonly active: { line: number; character: number };
+    constructor(line: number, character: number, _endLine: number, _endCharacter: number) {
+      this.active = { line, character };
+    }
+  },
   Position: class {
     constructor(readonly line: number, readonly character: number) {}
   },
@@ -181,9 +191,29 @@ const stub = {
     get visibleTextEditors() {
       return stub.__visibleEditors;
     },
-    showTextDocument: async (doc: unknown) => ({ document: doc, setDecorations: () => {} }),
-    onDidChangeActiveTextEditor: () => ({ dispose: () => {} }),
-    onDidChangeVisibleTextEditors: () => ({ dispose: () => {} }),
+    showTextDocument: async (doc: any, options: any = {}) => {
+      const editor = { document: doc, options, decorations: [] as any[],
+        selection: { active: { line: options.selection?.startLine ?? 0 } },
+        revealRange(range: unknown) { (editor as any).revealed = range; },
+        setDecorations(type: unknown, ranges: unknown[]) { editor.decorations.push({ type, ranges }); },
+      };
+      stub.__shownEditors.push(editor);
+      stub.__visibleEditors.push(editor);
+      if (!options.preserveFocus) stub.__activeEditor = editor;
+      for (const listener of stub.__editorListeners) {
+        if (listener.event === "visible") listener.cb(stub.__visibleEditors);
+        if (listener.event === "active" && !options.preserveFocus) listener.cb(editor);
+      }
+      return editor;
+    },
+    onDidChangeActiveTextEditor: (cb: (value: any) => void) => {
+      const listener = { event: "active", cb }; stub.__editorListeners.push(listener);
+      return { dispose: () => { stub.__editorListeners = stub.__editorListeners.filter(l => l !== listener); } };
+    },
+    onDidChangeVisibleTextEditors: (cb: (value: any) => void) => {
+      const listener = { event: "visible", cb }; stub.__editorListeners.push(listener);
+      return { dispose: () => { stub.__editorListeners = stub.__editorListeners.filter(l => l !== listener); } };
+    },
     onDidChangeWindowState: () => ({ dispose: () => {} }),
     get state() {
       return { focused: true };
@@ -237,7 +267,7 @@ const stub = {
     },
     registerFileDecorationProvider: () => ({ dispose: () => {} }),
     get activeTextEditor() {
-      return undefined;
+      return stub.__activeEditor;
     },
     get tabGroups() {
       return { all: [], close: async () => true };
@@ -306,14 +336,20 @@ const stub = {
       stub.__listeners.push({ event: "close", cb });
       return { dispose: () => {} };
     },
-    openTextDocument: async (uri: unknown) => ({
-      uri,
-      isDirty: false,
-      lineCount: 1,
-      lineAt: () => ({ range: {} }),
-      positionAt: (offset: number) => ({ line: 0, character: offset }),
-      getText: () => "",
-    }),
+    openTextDocument: async (uri: any) => {
+      const existing = stub.__textDocuments.find((doc: any) => doc.uri.toString?.() === uri.toString());
+      if (existing) return existing;
+      const provider = contentProviders.get(uri.scheme) as { provideTextDocumentContent(uri: any): string } | undefined;
+      const text = () => provider?.provideTextDocumentContent(uri) ?? (uri.scheme === "file" ? readFileSync(uri.fsPath, "utf8") : "");
+      const doc = { uri, isDirty: false,
+        get lineCount() { return text().split("\n").length; },
+        lineAt: () => ({ range: {} }),
+        positionAt: (offset: number) => ({ line: 0, character: offset }),
+        getText: text,
+      };
+      if (provider) stub.__textDocuments.push(doc);
+      return doc;
+    },
     applyEdit: async () => true,
     fs: {
       readFile: async () => new Uint8Array(),

@@ -143,6 +143,20 @@ function harness(changes: ChangeSet[], opts: { autoSave?: string; docs?: FakeDoc
   };
 }
 
+test("migration restores legacy review text with Auto Save on and preserves user edits", () => {
+  const cs = makeChange();
+  const legacy = new FakeDoc(cs.absPath, buildStagedText(cs)!);
+  const h = harness([cs], { docs: [legacy], autoSave: "afterDelay" });
+  assert.equal(h.staged.adoptOpenDocuments({ restoreDisk: true }), 1);
+  assert.deepEqual(h.reverts, [cs.absPath]);
+  assert.equal(h.staged.isStaged(cs.absPath), false);
+
+  const edited = new FakeDoc(cs.absPath, buildStagedText(cs)! + "user edits\n");
+  const user = harness([cs], { docs: [edited], autoSave: "afterDelay" });
+  assert.equal(user.staged.adoptOpenDocuments({ restoreDisk: true }), 0);
+  assert.deepEqual(user.reverts, []);
+});
+
 test("staging puts the merged view in the buffer and records the file", async () => {
   const cs = makeChange();
   const doc = new FakeDoc("/ws/a.txt", cs.proposed); // origin fs: the disk already has the new code

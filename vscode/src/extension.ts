@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { Logger } from "./logger";
 import { HubServer } from "../../core/src/hub-server";
 import { registry, pidAlive, defaultBaseDir, type HubEntry } from "../../core/src/registry";
-import { ChangeContentProvider } from "./ui/editor/content-provider";
+import { ChangeContentProvider, reviewChangeId } from "./ui/editor/content-provider";
 import { HunkCodeLensProvider, DiffView } from "./ui/editor/diff-view";
 import { ReviewPanelProvider, type PanelActions } from "./ui/webview/review-panel";
 import { ReviewTab } from "./ui/webview/review-tab";
@@ -21,7 +21,6 @@ import { HUB_PROTOCOL, type ChangeSet, type FileNode } from "../../core/src/type
 
 interface Config {
   enabled: boolean;
-  watchDirectWrites: boolean;
   maxFileSize: number;
   excludeGlobs: string[];
   ignoreWhitespace: boolean;
@@ -52,12 +51,11 @@ function readConfig(): Config {
   const merged = Array.from(new Set([...DEFAULT_EXCLUDES, ...userExcludes]));
   return {
     enabled: c.get("enabled", true),
-    watchDirectWrites: c.get("watchDirectWrites", true),
     maxFileSize: c.get("maxFileSize", 2 * 1024 * 1024),
     excludeGlobs: merged,
     ignoreWhitespace: c.get("ignoreWhitespace", false),
     maxSnapshotFiles: c.get("maxSnapshotFiles", 5000),
-    autoOpenDiff: c.get("autoOpenDiff", false),
+    autoOpenDiff: c.get("autoOpenDiff", true),
   };
 }
 
@@ -75,19 +73,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const hub = new HubServer({
     baseDir,
+    mcpOnly: true,
     maxFileSize: config.maxFileSize,
     excludeGlobs: config.excludeGlobs,
     // Declared before the UI exists; the closures below are wired once it does.
-    onChanged: (workspace, relPath) => hubChanged?.(workspace, relPath),
-    onResolved: () => hubResolved?.(),
+    onChanged: (workspace, relPath, changeId) => hubChanged?.(workspace, relPath, changeId),
+    onResolved: (workspace, relPath, changeId) => hubChanged?.(workspace, relPath, changeId),
     // The MCP server routes a tool call by matching the agent's path against these, so a
     // harness whose working directory is not the project being edited still lands in the
     // right workspace.
     liveWorkspaces: () => workspaceFolders(),
     windowStates: () => readWindowStates(baseDir),
   });
-  let hubChanged: ((workspace: string, relPath: string) => void) | undefined;
-  let hubResolved: (() => void) | undefined;
+  let hubChanged: ((workspace: string, relPath: string, changeId: string) => void) | undefined;
 
   // ---- Host election (non-blocking) ----------------------------------------
   // One shared hub serves every VS Code window and every project. The first window to
@@ -289,17 +287,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   };
 
-  /**
-   * The staging trigger for a file that just changed: the watcher callback and
-   * `hubChanged` (the MCP propose path) land here. If this exact change is already staged
-   * we re-render instead of staging again — `stage()` short-circuits on an unchanged id,
-   * `restage()` rebuilds the view.
-   *
-   * A decision made in another window is not re-staged here: the 2 s poll picks such a
-   * change up only to refresh the UI, never to rebuild the buffer (accepted C3 limitation).
-   */
-  // Stage the merged review view for a file that just changed — but only for projects this
-  // window actually has open: the hub is shared, so hubChanged can report any workspace.
+  // Only maintain legacy buffers recovered after hot exit. New reviews live in a
+  // separate webview, so Auto Save can never write interleaved old/new display text.
   const stagePath = (ws: string, relPath: string): void => {
     if (!workspaceFolders().includes(ws)) {
       return;
@@ -308,9 +297,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!cs) {
       return;
     }
-    const run =
-      staged.changeIdFor(cs.absPath) === cs.id ? staged.restage(cs.id) : staged.stage(cs.id);
-    run.catch((err) => logger.warn(`stage ${cs.path} failed: ${String(err)}`));
+    if (staged.changeIdFor(cs.absPath) === cs.id) {
+      staged.restage(cs.id).catch((err) => logger.warn(`stage ${cs.path} failed: ${String(err)}`));
+    }
   };
 
   const provider = new ChangeContentProvider(hub.store);
@@ -333,7 +322,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // does: `decide` is a `const` and `decideMany`/`decideFileById` are hoisted `async function`
   // declarations later in this scope, and a closure may reference a later `const` as long as
   // it does not *run* before that const is initialised.
-  let openReviewTab: (changeId: string, targetHunkId?: string) => void;
+  let openReviewTab: (changeId: string, targetHunkId?: string, preserveFocus?: boolean) => Promise<void>;
 
   const panelActions: PanelActions = {
     acceptHunk: (changeId, hunkId) => void decide(changeId, [hunkId], "accept"),
@@ -361,14 +350,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       rejectFile: (changeId) => void decideFileById(changeId, "reject"),
     },
   );
-  openReviewTab = (changeId, targetHunkId) => tab.open(changeId, targetHunkId);
+
   staged = new StagedReview(stagedHost);
 
   const diffView = new DiffView(hub.store, provider, codeLens, () => {
     refreshUi();
   });
+  openReviewTab = async (changeId, targetHunkId, preserveFocus = false) => {
+    const cs = hub.store.findById(changeId);
+    if (cs?.binary) {
+      tab.open(changeId, targetHunkId);
+      return;
+    }
+    try {
+      await diffView.openInline(changeId, targetHunkId, preserveFocus);
+    } catch (err) {
+      logger.error(`open inline review failed: ${String(err)}`);
+      void vscode.window.showErrorMessage("Review Hub: could not open the inline review.");
+    }
+  };
   decorator.start();
-  staged.start();
+  staged.start({ stageOnOpen: false });
   runtime = {
     store: hub.store,
     workspaces: workspaceFolders,
@@ -386,6 +388,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     tab.refreshAll();
     decorator.refreshAll();
     fileDecorations.refresh();
+    const ids = new Set(vscode.workspace.textDocuments
+      .filter((doc) => doc.uri.scheme === "review-hub")
+      .map((doc) => reviewChangeId(doc.uri)));
+    for (const id of ids) {
+      provider.refresh(id);
+    }
     updateStatus();
   }
 
@@ -436,7 +444,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       autoOpened.add(cs.id);
       try {
         // Open the review tab beside the editor, without stealing focus.
-        openReviewTab(cs.id);
+        await openReviewTab(cs.id, undefined, true);
       } catch {
         // file may have been deleted; ignore
       }
@@ -455,36 +463,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     DEFAULT_INCLUDE_EXTENSIONS,
   );
-  if (config.watchDirectWrites) {
-    watcher.start();
-  }
+  // Reviews come exclusively from MCP data. Do not start file/Git detection.
 
   // Route hub events (the MCP path) into the same UI refresh + auto-open as the watcher.
-  hubChanged = (workspace, relPath) => {
+  hubChanged = (workspace, relPath, changeId) => {
+    // MCP decisions may carry only an id. Refresh the real editor after each one,
+    // including partial decisions, while preserving the user's unsaved edits.
+    const cs = changeId ? hub.store.findById(changeId) : undefined;
+    if (cs && workspaceFolders().includes(cs.workspace)) {
+      reloadOpenEditors(vscode.workspace.textDocuments, cs.absPath,
+        (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri));
+      workspace = cs.workspace;
+      relPath = cs.path;
+    }
     refreshUi();
     if (relPath) {
       scheduleAutoOpen(workspace, relPath);
       stagePath(workspace, relPath);
     }
   };
-  hubResolved = () => {
-    refreshUi();
-  };
 
   // The store is file-backed and shared across windows. A window that is not the hub
   // host gets no hub events, and even the host does not see edits another window's
   // agent made through the shared store. Poll cheaply so every window stays in sync:
   // the store's own cache revalidates by directory mtime, so this is a few stats.
-  let seenChangeIds = new Set<string>();
+  let seenChangeIds = new Map<string, string>();
   let primed = false;
   const pollTimer = setInterval(() => {
     try {
       const before = seenChangeIds;
-      const now = new Set<string>();
+      const now = new Map<string, string>();
       let changed = false;
       for (const ws of source.workspaces()) {
         for (const s of hub.store.listChanges(ws)) {
-          now.add(s.id);
+          const signature = JSON.stringify(s);
+          now.set(s.id, signature);
+          if (primed && before.get(s.id) !== signature) {
+            changed = true;
+            const cs = hub.store.findById(s.id);
+            if (cs) {
+              reloadOpenEditors(vscode.workspace.textDocuments, cs.absPath,
+                (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri));
+            }
+          }
           if (!before.has(s.id)) {
             changed = true;
             // On the very first tick, adopt whatever is already on disk as "seen"
@@ -501,6 +522,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Also detect removals (a change resolved in another window).
       if (primed && now.size !== before.size) {
         changed = true;
+      }
+      if (primed) {
+        for (const id of before.keys()) {
+          if (now.has(id)) continue;
+          changed = true;
+          const cs = hub.store.findById(id);
+          if (cs) {
+            reloadOpenEditors(vscode.workspace.textDocuments, cs.absPath,
+              (uri) => void vscode.commands.executeCommand("workbench.action.files.revert", uri));
+          }
+        }
       }
       seenChangeIds = now;
       if (changed && primed) {
@@ -570,9 +602,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // git HEAD (free) or is captured lazily the moment the agent proposes a change, so
   // opening a project costs nothing and a session with no changes shows nothing.
   refreshUi();
-  // Hot exit can restore buffers we staged last session: adopt the ones that still hold the
-  // view, leave every other buffer alone (spec D6b/F3).
-  staged.adoptOpenDocuments();
+  // Migrate exact legacy review buffers back to disk, including with Auto Save on.
+  // User-edited buffers are never reverted. Future reviews stay in the separate tab.
+  staged.adoptOpenDocuments({ restoreDisk: true });
 
   /**
    * Turn a command argument into a change id. Accepts an id, a plain `{ workspace, path }`
@@ -599,6 +631,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (arg && typeof arg === "object" && "path" in arg && "workspace" in arg) {
       return hub.store.findChangeByPath(arg.workspace, arg.path)?.id;
+    }
+    const active = vscode.window.activeTextEditor;
+    if (active?.document.uri.scheme === "review-hub") {
+      return reviewChangeId(active.document.uri);
     }
     // Fall back to the active diff tab.
     for (const group of vscode.window.tabGroups.all) {
@@ -714,7 +750,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("review-hub.openDiff", async (arg?: FileNode | vscode.Uri | string) => {
       const changeId = await resolveChange(arg);
       if (changeId) {
-        tab.open(changeId);
+        await openReviewTab(changeId);
       }
     }),
     // Open the classic side-by-side (baseline | proposed) diff instead of the merged view.
@@ -733,6 +769,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: false });
       }
     }),
+    vscode.commands.registerCommand("review-hub.nextHunk", () => diffView.navigate(1)),
+    vscode.commands.registerCommand("review-hub.previousHunk", () => diffView.navigate(-1)),
     vscode.commands.registerCommand("review-hub.acceptHunk", (changeId: string, hunkId: string) =>
       decide(changeId, [hunkId], "accept"),
     ),
@@ -839,7 +877,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const decideActiveStaged = async (kind: "accept" | "reject"): Promise<void> => {
     const active = vscode.window.activeTextEditor;
-    const changeId = active ? staged.changeIdFor(active.document.uri.fsPath) : undefined;
+    const changeId = active?.document.uri.scheme === "review-hub"
+      ? reviewChangeId(active.document.uri)
+      : active ? staged.changeIdFor(active.document.uri.fsPath) : undefined;
     if (!changeId) {
       void vscode.window.showInformationMessage("Review Hub: no staged review in this file.");
       return;

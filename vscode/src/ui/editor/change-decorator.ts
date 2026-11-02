@@ -15,6 +15,7 @@
  */
 import * as vscode from "vscode";
 import type { ChangeStore } from "../../../../core/src/change-store";
+import { reviewChangeId } from "./content-provider";
 import type { ChangeSet, Hunk } from "../../../../core/src/types";
 import { splitContent, diskFrame, resolveHunkRanges } from "../../../../core/src/hunk-diff";
 import { buildStagedView, stagedMarks, type StagedMark } from "./staged-content";
@@ -109,6 +110,9 @@ export class ChangeDecorator implements vscode.Disposable {
   }
 
   private changeForDocument(editor: vscode.TextEditor): ChangeSet | undefined {
+    if (editor.document.uri.scheme === "review-hub" && editor.document.uri.authority === "inline") {
+      return this.store.findById(reviewChangeId(editor.document.uri));
+    }
     if (editor.document.uri.scheme !== "file") {
       return undefined;
     }
@@ -138,7 +142,8 @@ export class ChangeDecorator implements vscode.Disposable {
     }
     // A staged buffer contains BOTH sides of every hunk, so each block can be a real colour
     // row — the thing a plain highlight structurally cannot do (see the module header).
-    if (this.isStaged(editor.document.uri.fsPath)) {
+    if ((editor.document.uri.scheme === "review-hub" && editor.document.uri.authority === "inline") ||
+        this.isStaged(editor.document.uri.fsPath)) {
       this.applyStaged(editor, cs);
       return;
     }
@@ -237,7 +242,7 @@ export class ChangeDecorator implements vscode.Disposable {
     const decorate = (list: StagedMark[]): vscode.DecorationOptions[] =>
       list.flatMap((mark) => {
         const hunk = hunks.get(mark.hunkId);
-        if (!hunk) {
+        if (!hunk || (editor.document.uri.scheme === "review-hub" && hunk.decision !== "pending")) {
           return [];
         }
         return [

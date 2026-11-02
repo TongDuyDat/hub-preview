@@ -99,3 +99,17 @@ test("opening an unknown change shows a warning and creates no panel", () => {
   const messages = (vscode as unknown as { __messages: string[] }).__messages;
   assert.ok(messages.some((m) => m.includes("no longer exists")));
 });
+
+test("ready replays the latest state after the webview script loads", () => {
+  const { tab, store, cs } = setup();
+  tab.open(cs.id, cs.hunks[0].id);
+  const panel = panels().at(-1)!;
+  panel.posted.length = 0; // initial post can arrive before the script installs its listener
+  store.accept(cs.id);
+  panel.webview.__receive({ command: "ready" });
+  const update = panel.posted.at(-1) as { targetHunkId: string; state: { pending: number; lines: { text: string }[] } };
+  assert.equal(update.targetHunkId, cs.hunks[0].id);
+  assert.equal(update.state.pending, 0);
+  assert.ok(update.state.lines.some((line) => line.text === "TWO"));
+  assert.ok(!update.state.lines.some((line) => line.text === "two"));
+});

@@ -22,6 +22,7 @@ export interface HubEvents {
 }
 
 export interface HubOptions extends HubEvents {
+  mcpOnly?: boolean;
   baseDir?: string;
   maxFileSize?: number;
   excludeGlobs?: string[];
@@ -51,7 +52,7 @@ export class HubServer {
   private windowStates: (() => WindowState[]) | undefined;
 
   constructor(opts: HubOptions = {}) {
-    this.store = new ChangeStore({ baseDir: opts.baseDir, maxFileSize: opts.maxFileSize, excludeGlobs: opts.excludeGlobs });
+    this.store = new ChangeStore({ baseDir: opts.baseDir, maxFileSize: opts.maxFileSize, excludeGlobs: opts.excludeGlobs, mcpOnly: opts.mcpOnly });
     this.token = opts.token ?? randomBytes(32).toString("hex");
     this.events = { onChanged: opts.onChanged, onResolved: opts.onResolved };
     this.liveWorkspaces = opts.liveWorkspaces;

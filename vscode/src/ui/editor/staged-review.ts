@@ -77,11 +77,14 @@ export class StagedReview {
   constructor(private readonly host: StagedHost) {}
 
   /** Register the three host listeners. Call once, after the rest of the UI exists. */
-  start(): void {
+  start(opts: { stageOnOpen?: boolean } = {}): void {
     this.subs.push(
       this.host.onDidChangeTextDocument((doc) => this.handleTextChange(doc)),
       this.host.onWillSaveTextDocument((fsPath, prevent, text) => this.handleWillSave(fsPath, prevent, text)),
       this.host.onDidOpenTextDocument((fsPath) => {
+        if (opts.stageOnOpen === false) {
+          return;
+        }
         // A failed stage is never fatal: the file simply keeps the unstaged path.
         this.stageOnOpen(fsPath).catch(() => undefined);
       }),
@@ -233,14 +236,14 @@ export class StagedReview {
    * Reconciliation after hot exit / crash (spec D6b): adopt every open buffer that still
    * holds the view we built for it, leave every other buffer alone (spec F3).
    */
-  adoptOpenDocuments(): number {
+  adoptOpenDocuments(opts: { restoreDisk?: boolean } = {}): number {
     let adopted = 0;
     for (const doc of this.host.documents()) {
       if (doc.uri.scheme !== "file" || this.entries.has(doc.uri.fsPath)) {
         continue;
       }
       const cs = this.host.changeForPath(doc.uri.fsPath);
-      if (!cs || stageSkipReason(cs, this.host.autoSave())) {
+      if (!cs || stageSkipReason(cs, opts.restoreDisk ? "off" : this.host.autoSave())) {
         continue;
       }
       const text = buildStagedText(cs);
@@ -250,6 +253,9 @@ export class StagedReview {
         // earlier session — so it enters the save guard's view-text check like the rest (C22).
         this.viewTexts.set(doc.uri.fsPath, text);
         adopted++;
+        if (opts.restoreDisk) {
+          this.unstage(cs.id, { revert: true });
+        }
       }
     }
     if (adopted > 0) {

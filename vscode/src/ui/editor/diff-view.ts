@@ -8,8 +8,9 @@
  * per-hunk Accept/Reject CodeLens on the real file itself.
  */
 import * as vscode from "vscode";
+import { existsSync } from "node:fs";
 import type { ChangeStore } from "../../../../core/src/change-store";
-import type { ChangeContentProvider } from "./content-provider";
+import { reviewChangeId, type ChangeContentProvider } from "./content-provider";
 import { splitContent, diskFrame, resolveHunkRanges } from "../../../../core/src/hunk-diff";
 import { buildStagedView, stagedCountTitle } from "./staged-content";
 import type { Hunk } from "../../../../core/src/types";
@@ -31,6 +32,21 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
     const uri = document.uri;
 
+    // Native inline review: both sides live in a read-only editor, never a file buffer.
+    if (uri.scheme === "review-hub" && uri.authority === "inline") {
+      const cs = this.store.findById(reviewChangeId(uri));
+      if (!cs || cs.binary) return [];
+      const view = buildStagedView(cs);
+      if (!view) return [];
+      const byId = new Map(cs.hunks.map((h) => [h.id, h]));
+      return view.hunks.flatMap((h, index) => {
+        const hunk = byId.get(h.id);
+        return hunk ? this.lensesFor(cs, hunk, index, h.anchor, document, cs.hunks.length, {
+          removed: h.removed, added: h.added,
+        }) : [];
+      });
+    }
+
     // The virtual "proposed" side of a side-by-side diff.
     if (uri.scheme === "review-hub" && uri.authority === "proposed") {
       const changeId = uri.path.replace(/^\//, "");
@@ -38,8 +54,11 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
       if (!cs || cs.binary) {
         return [];
       }
+      const ranges = new Map(
+        resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, "proposed").map((r) => [r.id, r]),
+      );
       return cs.hunks.flatMap((hunk, index) =>
-        this.lensesFor(cs, hunk, index, hunk.newStart, document, cs.hunks.length),
+        this.lensesFor(cs, hunk, index, ranges.get(hunk.id)?.start ?? hunk.newStart, document, cs.hunks.length),
       );
     }
 
@@ -204,6 +223,37 @@ export class DiffView implements vscode.Disposable {
     private onDidChange: () => void,
   ) {}
 
+  /** Open the merged red/green review in the native editor, in the current group. */
+  async openInline(changeId: string, targetHunkId?: string, preserveFocus = false): Promise<void> {
+    const cs = this.store.findById(changeId);
+    if (!cs) return;
+    const doc = await vscode.workspace.openTextDocument(this.provider.inlineUri(changeId));
+    const target = targetHunkId ? buildStagedView(cs)?.hunks.find((h) => h.id === targetHunkId) : undefined;
+    const line = target ? clamp(target.anchor, 0, Math.max(0, doc.lineCount - 1)) : undefined;
+    await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.Active,
+      preview: false,
+      preserveFocus,
+      ...(line === undefined ? {} : { selection: new vscode.Range(line, 0, line, 0) }),
+    });
+  }
+
+  /** Navigate only pending hunks; completed blocks do not interrupt the review. */
+  navigate(direction: 1 | -1): void {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.scheme !== "review-hub" || editor.document.uri.authority !== "inline") return;
+    const cs = this.store.findById(reviewChangeId(editor.document.uri));
+    const pending = cs ? buildStagedView(cs)?.hunks.filter((h) => h.decision === "pending") ?? [] : [];
+    if (pending.length === 0) return;
+    const current = editor.selection.active.line;
+    const next = direction === 1
+      ? pending.find((h) => h.anchor > current) ?? pending[0]
+      : [...pending].reverse().find((h) => h.anchor < current) ?? pending[pending.length - 1];
+    const line = clamp(next.anchor, 0, Math.max(0, editor.document.lineCount - 1));
+    editor.selection = new vscode.Selection(line, 0, line, 0);
+    editor.revealRange(new vscode.Range(line, 0, line, 0));
+  }
+
   /** Open the classic side-by-side diff (baseline | proposed). */
   async openSideBySide(changeId: string): Promise<void> {
     const cs = this.store.findById(changeId);
@@ -246,7 +296,34 @@ export class DiffView implements vscode.Disposable {
     this.provider.refresh(changeId);
     this.codeLens.refresh();
     this.onDidChange();
-    await this.retitle(changeId);
+    if (this.store.findById(changeId)?.status === "resolved") {
+      await this.closeResolvedInline(changeId);
+    } else {
+      await this.retitle(changeId);
+    }
+  }
+
+  /** Return completed inline reviews to the real file without closing unrelated tabs. */
+  private async closeResolvedInline(changeId: string): Promise<void> {
+    const cs = this.store.findById(changeId);
+    if (!cs) return;
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of [...group.tabs]) {
+        const uri = (tab.input as { uri?: vscode.Uri } | undefined)?.uri;
+        if (uri?.scheme !== "review-hub" || uri.authority !== "inline" || reviewChangeId(uri) !== changeId) continue;
+        // A deleted file has no original editor to return to. Never recreate it.
+        // Open first so a failed open leaves the review available.
+        if (tab.isActive && existsSync(cs.absPath)) {
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(cs.absPath));
+          await vscode.window.showTextDocument(doc, {
+            viewColumn: group.viewColumn,
+            preview: false,
+            preserveFocus: !group.isActive,
+          });
+        }
+        await vscode.window.tabGroups.close(tab, true);
+      }
+    }
   }
 
   private async retitle(changeId: string): Promise<void> {

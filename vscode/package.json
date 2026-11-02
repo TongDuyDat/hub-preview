@@ -1,7 +1,7 @@
 {
   "name": "review-hub-vscode",
   "displayName": "Review Hub",
-  "description": "Always see what AI coding agents changed in your project, and accept or reject individual hunks. Works with Claude Code, opencode, dsh, Cline, Roo via MCP, and catches direct writes too.",
+  "description": "Review AI changes proposed through MCP and accept or reject individual hunks. Works with Claude Code, opencode, dsh, Cline and Roo.",
   "version": "0.3.0",
   "publisher": "review-hub",
   "license": "MIT",
@@ -116,6 +116,16 @@
         "command": "review-hub.copyAgentRules",
         "title": "Review Hub: Copy AI Agent Rules to Clipboard",
         "icon": "$(book)"
+      },
+      {
+        "command": "review-hub.previousHunk",
+        "title": "Review Hub: Previous Pending Change",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "review-hub.nextHunk",
+        "title": "Review Hub: Next Pending Change",
+        "icon": "$(arrow-down)"
       }
     ],
     "viewsContainers": {
@@ -194,13 +204,28 @@
       "editor/title": [
         {
           "command": "review-hub.stagedAcceptAll",
-          "when": "resourceScheme == file && reviewHub.hasStagedReview",
+          "when": "resourceScheme == review-hub || (resourceScheme == file && reviewHub.hasStagedReview)",
           "group": "navigation@1"
         },
         {
           "command": "review-hub.stagedRejectAll",
-          "when": "resourceScheme == file && reviewHub.hasStagedReview",
+          "when": "resourceScheme == review-hub || (resourceScheme == file && reviewHub.hasStagedReview)",
           "group": "navigation@2"
+        },
+        {
+          "command": "review-hub.previousHunk",
+          "when": "resourceScheme == review-hub",
+          "group": "navigation@3"
+        },
+        {
+          "command": "review-hub.nextHunk",
+          "when": "resourceScheme == review-hub",
+          "group": "navigation@4"
+        },
+        {
+          "command": "review-hub.openFile",
+          "when": "resourceScheme == review-hub",
+          "group": "navigation@5"
         }
       ]
     },
@@ -214,13 +239,14 @@
         },
         "review-hub.watchDirectWrites": {
           "type": "boolean",
-          "default": true,
-          "description": "Watch the workspace for direct file writes by agents (the fallback that works regardless of the agent's permission mode)."
+          "default": false,
+          "deprecationMessage": "Review Hub now reviews MCP proposals only. Filesystem and Git diffs are ignored.",
+          "description": "Deprecated. Direct file writes do not create Review Hub reviews."
         },
         "review-hub.autoOpenDiff": {
           "type": "boolean",
-          "default": false,
-          "description": "Automatically open the review tab as soon as an agent changes a file. Off by default: changed files are marked with a badge in the Explorer (and in the Review Hub panel), and you open the diff by clicking one, so an agent's edits never interrupt what you are doing."
+          "default": true,
+          "description": "Automatically open MCP changes as an inline red/green review in the native editor. Each hunk has Accept/Reject actions; Auto Save continues to save only the real file."
         },
         "review-hub.ignoreWhitespace": {
           "type": "boolean",

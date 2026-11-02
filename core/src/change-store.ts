@@ -119,6 +119,8 @@ export const DEFAULT_EXCLUDES = [
 ];
 
 export interface StoreOptions {
+  /** Review only MCP proposals; ignore legacy filesystem/Git changes. */
+  mcpOnly?: boolean;
   baseDir?: string;
   maxFileSize?: number;
   excludeGlobs?: string[];
@@ -191,8 +193,10 @@ export class ChangeStore {
   private excludeGlobs: string[];
   private excludeRes: RegExp[];
   private backend: StoreBackend;
+  private readonly mcpOnly: boolean;
 
   constructor(opts: StoreOptions = {}) {
+    this.mcpOnly = opts.mcpOnly ?? false;
     this.baseDir = opts.baseDir ?? path.join(os.homedir(), ".review-hub");
     this.maxFileSize = opts.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
     this.excludeGlobs = opts.excludeGlobs ?? [];
@@ -299,16 +303,20 @@ export class ChangeStore {
     this.backend.writeChange(cs);
   }
 
+  private reviewable(cs: ChangeSet | undefined): ChangeSet | undefined {
+    return cs && (!this.mcpOnly || cs.origin === "mcp") ? cs : undefined;
+  }
+
   getChange(workspace: string, id: string): ChangeSet | undefined {
-    return this.backend.getChange(workspace, id);
+    return this.reviewable(this.backend.getChange(workspace, id));
   }
 
   findById(changeId: string): ChangeSet | undefined {
-    return this.backend.findById(changeId);
+    return this.reviewable(this.backend.findById(changeId));
   }
 
   findChangeByPath(workspace: string, relPath: string): ChangeSet | undefined {
-    return this.backend.findChangeByPath(workspace, relPath);
+    return this.reviewable(this.backend.findChangeByPath(workspace, relPath));
   }
 
   private removeChange(cs: ChangeSet): void {
@@ -317,11 +325,11 @@ export class ChangeStore {
 
   /** Unresolved change sets, full objects — for the sidebar panel and the review tab. */
   listChangeSets(workspace: string): ChangeSet[] {
-    return this.backend.listChangeSets(workspace);
+    return this.backend.listChangeSets(workspace).filter((cs) => !this.mcpOnly || cs.origin === "mcp");
   }
 
   listChanges(workspace: string): ChangeSummary[] {
-    return this.backend.listChangeSets(workspace).map((cs) => summarize(cs));
+    return this.listChangeSets(workspace).map((cs) => summarize(cs));
   }
 
   listKnownWorkspaces(): string[] {
@@ -622,10 +630,19 @@ export class ChangeStore {
       throw new Error(`path escapes workspace: ${relPath}`);
     }
     const rel = toPosix(path.relative(workspace, abs));
-    const base = this.baselineFor(workspace, rel, true);
+    const existing = this.findChangeByPath(workspace, rel);
+    // A fresh MCP review starts at the current working file, never a Git/checkpoint
+    // snapshot. Further proposals retain the same review baseline and decisions.
+    const base = this.mcpOnly
+      ? existing
+        ? { content: existing.baseline, exists: existing.baselineExists }
+        : (() => {
+            const current = readFileSafe(abs);
+            return { content: current.exists ? current.content : "", exists: current.exists };
+          })()
+      : this.baselineFor(workspace, rel, true);
     const proposed = opts.delete ? "" : content;
     const proposedExists = !opts.delete;
-    const existing = this.findChangeByPath(workspace, rel);
     const hunks = computeHunks(splitContent(base.content).lines, splitContent(proposed).lines);
     const meta = splitContent(proposedExists ? proposed : base.content);
     const cs: ChangeSet = {
@@ -661,6 +678,9 @@ export class ChangeStore {
    *   3. absent (treated as a newly created file).
    */
   async observe(workspace: string, relPath: string): Promise<ChangeSet | undefined> {
+    if (this.mcpOnly) {
+      return undefined;
+    }
     const abs = resolveInside(workspace, relPath);
     if (!abs) {
       return undefined;

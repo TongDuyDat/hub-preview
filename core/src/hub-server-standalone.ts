@@ -19,6 +19,7 @@ async function main() {
   const workspace = process.argv[2] ?? process.cwd();
   const hub = new HubServer({
     baseDir,
+    mcpOnly: true,
     liveWorkspaces: () => [workspace],
   });
 

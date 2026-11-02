@@ -84,10 +84,16 @@
       return;
     }
     const byLine = new Map();
-    for (const hunk of next.hunks) byLine.set(hunk.line, hunk);
-    for (let i = 0; i < next.lines.length; i++) {
-      const hunk = byLine.get(i);
-      if (hunk) root.appendChild(renderHunkBar(next, hunk));
+    for (const hunk of next.hunks) {
+      const bars = byLine.get(hunk.line) || [];
+      bars.push(hunk);
+      byLine.set(hunk.line, bars);
+    }
+    // A deletion at EOF (or a rejected new file) has an anchor after the last line.
+    // Keep its decision/Undo bar visible even when the resolved file is empty.
+    for (let i = 0; i <= next.lines.length; i++) {
+      for (const hunk of byLine.get(i) || []) root.appendChild(renderHunkBar(next, hunk));
+      if (i === next.lines.length) break;
       const line = next.lines[i];
       const row = el("div", "line " + line.kind);
       row.appendChild(el("span", "gutter", String(i + 1)));

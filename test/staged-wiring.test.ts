@@ -37,7 +37,7 @@ const ctx = {
   globalState: { get: () => undefined, update: async () => {} },
 };
 
-test("activation wires the staging engine into the workspace events", async () => {
+test("activation recovers legacy review buffers without staging new file buffers", async () => {
   // Arm the engine before activation: a pending change whose buffer already holds the
   // merged view is exactly what hot-exit adoption takes over (spec D6b/F3), and a staged
   // file is what arms the save guard. The store is file-backed at the same baseDir the
@@ -119,14 +119,13 @@ test("activation wires the staging engine into the workspace events", async () =
     "a closed file's plain save must not be blocked by a stale entry",
   );
 
-  // Reopening re-stages the pending change through the engine's own open handler, so the
-  // later tests in this file still see a staged, revertable buffer.
+  // Reopening must keep the real file separate from the review, in every save mode.
   vscode.__listeners.find((l) => l.event === "open")?.cb({ uri: { scheme: "file", fsPath: aPath } });
   await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(
     vscode.__executed.filter((e) => e.command === "setContext").at(-1)?.args,
-    [STAGED_CONTEXT_KEY, true],
-    "reopening the file must re-stage the pending change",
+    [STAGED_CONTEXT_KEY, false],
+    "reopening the file must not insert review text into its editable buffer",
   );
 });
 

@@ -18,6 +18,32 @@ function tmp(): string {
 const OLD = "from typing import List, Optional, Sequence, Tuple\nprint('old')\n";
 const NEW = "from typing import List, Sequence, Tuple\nprint('new')\n";
 
+test("side-by-side content removes each decided diff while other hunks stay pending", () => {
+  const ws = tmp();
+  const store = new ChangeStore({ baseDir: tmp() });
+  const pad = "context\n".repeat(10);
+  const baseline = `remove\n${pad}old\n${pad}end\n`;
+  fs.writeFileSync(path.join(ws, "demo.py"), baseline);
+  const cs = store.propose(ws, "demo.py", `${pad}new\n${pad}end\ninsert\n`);
+  assert.equal(cs.hunks.length, 3);
+  const provider = new ChangeContentProvider(store);
+  const left = () => provider.provideTextDocumentContent(provider.baselineUri(cs.id));
+  const right = () => provider.provideTextDocumentContent(provider.proposedUri(cs.id));
+  assert.equal(left(), baseline);
+  store.accept(cs.id, [cs.hunks[0].id]);
+  assert.ok(!left().startsWith("remove\n"));
+  assert.ok(!right().startsWith("remove\n"));
+  assert.equal(fs.readFileSync(path.join(ws, "demo.py"), "utf8"), left());
+  store.reject(cs.id, [cs.hunks[1].id]);
+  assert.ok(right().includes("old\n"));
+  assert.ok(!right().includes("new\n"));
+  assert.ok(right().endsWith("insert\n"));
+  assert.ok(!left().endsWith("insert\n"));
+  store.accept(cs.id, [cs.hunks[2].id]);
+  assert.equal(left(), right());
+  assert.equal(right(), fs.readFileSync(path.join(ws, "demo.py"), "utf8"));
+});
+
 test("the content provider exposes `onDidChange`, so VS Code re-queries the merged view", () => {
   // Regression guard: the property must be named `onDidChange` — that is the name VS Code
   // looks for on a TextDocumentContentProvider. Named `onDidChangeTextDocument` (the

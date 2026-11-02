@@ -70,7 +70,13 @@ export class ReviewTab implements vscode.Disposable {
       css: "review.css",
       js: "review.js",
     });
-    panel.webview.onDidReceiveMessage((msg: TabMessage) => this.onMessage(msg));
+    panel.webview.onDidReceiveMessage((msg: TabMessage) => {
+      if (msg?.command === "ready") {
+        this.refresh(changeId, targetHunkId);
+      } else if (msg?.changeId === changeId) {
+        this.onMessage(msg);
+      }
+    });
     panel.onDidDispose(() => this.panels.delete(changeId));
     this.panels.set(changeId, panel);
     this.refresh(changeId, targetHunkId);
