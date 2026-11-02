@@ -24,98 +24,122 @@
     "commands": [
       {
         "command": "review-hub.setCheckpoint",
-        "title": "Review Hub: Set Checkpoint (accept current state)"
+        "title": "Set Checkpoint",
+        "category": "Review Hub",
+        "icon": "$(check-all)"
       },
       {
         "command": "review-hub.clearCheckpoint",
-        "title": "Review Hub: Clear Checkpoint"
+        "title": "Clear Checkpoint",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.openChanges",
-        "title": "Review Hub: Show Changes"
+        "title": "Show Changes",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.refresh",
-        "title": "Review Hub: Refresh",
-        "icon": "$(refresh)"
+        "title": "Refresh",
+        "icon": "$(refresh)",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.openDiff",
-        "title": "Review Hub: Open Diff"
+        "title": "Open Diff",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.openSideBySide",
-        "title": "Review Hub: Open Side-by-Side Diff",
-        "icon": "$(split-horizontal)"
+        "title": "Open Side-by-Side Diff",
+        "icon": "$(split-horizontal)",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.openFile",
-        "title": "Review Hub: Open File (new content)",
-        "icon": "$(go-to-file)"
+        "title": "Open File",
+        "icon": "$(go-to-file)",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.acceptAll",
-        "title": "Review Hub: Accept All Changes"
+        "title": "Accept All Changes",
+        "category": "Review Hub",
+        "icon": "$(pass)"
       },
       {
         "command": "review-hub.rejectAll",
-        "title": "Review Hub: Reject All Changes"
-      },
-      {
-        "command": "review-hub.undoFile",
-        "title": "Review Hub: Undo File",
+        "title": "Reject All Changes",
+        "category": "Review Hub",
         "icon": "$(discard)"
       },
       {
+        "command": "review-hub.undoFile",
+        "title": "Undo File",
+        "icon": "$(discard)",
+        "category": "Review Hub"
+      },
+      {
         "command": "review-hub.acceptHunk",
-        "title": "Review Hub: Accept Hunk"
+        "title": "Accept Hunk",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.rejectHunk",
-        "title": "Review Hub: Reject Hunk"
+        "title": "Reject Hunk",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.acceptFile",
-        "title": "Review Hub: Accept File",
-        "icon": "$(check)"
+        "title": "Accept File",
+        "icon": "$(check)",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.rejectFile",
-        "title": "Review Hub: Reject File",
-        "icon": "$(chrome-close)"
+        "title": "Reject File",
+        "icon": "$(chrome-close)",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.stagedAcceptAll",
-        "title": "Review Hub: Accept Every Change in This File",
-        "icon": "$(check)"
+        "title": "Accept Every Change in This File",
+        "icon": "$(check)",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.stagedRejectAll",
-        "title": "Review Hub: Reject Every Change in This File",
-        "icon": "$(chrome-close)"
+        "title": "Reject Every Change in This File",
+        "icon": "$(chrome-close)",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.registerMcp",
-        "title": "Review Hub: Copy MCP Config for AI Tools",
-        "icon": "$(copy)"
+        "title": "Copy MCP Config for AI Tools",
+        "icon": "$(copy)",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.installInstructions",
-        "title": "Review Hub: Install agent instructions"
+        "title": "Install Agent Instructions",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.showHubInfo",
-        "title": "Review Hub: Show Hub Info"
+        "title": "Show Hub Info",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.copyMcpConfig",
-        "title": "Review Hub: Copy MCP Config for AI Tools",
-        "icon": "$(copy)"
+        "title": "Copy MCP Config for AI Tools",
+        "icon": "$(copy)",
+        "category": "Review Hub"
       },
       {
         "command": "review-hub.copyAgentRules",
-        "title": "Review Hub: Copy AI Agent Rules to Clipboard",
-        "icon": "$(book)"
+        "title": "Copy AI Agent Rules to Clipboard",
+        "icon": "$(book)",
+        "category": "Review Hub"
       }
     ],
     "viewsContainers": {
@@ -139,34 +163,34 @@
     "menus": {
       "view/title": [
         {
-          "command": "review-hub.setCheckpoint",
+          "command": "review-hub.refresh",
           "when": "view == review-hub.changes",
           "group": "navigation@1"
         },
         {
-          "command": "review-hub.acceptAll",
+          "command": "review-hub.setCheckpoint",
           "when": "view == review-hub.changes",
           "group": "navigation@2"
         },
         {
-          "command": "review-hub.rejectAll",
+          "command": "review-hub.acceptAll",
           "when": "view == review-hub.changes",
-          "group": "navigation@3"
+          "group": "1_actions@1"
         },
         {
-          "command": "review-hub.refresh",
+          "command": "review-hub.rejectAll",
           "when": "view == review-hub.changes",
-          "group": "navigation@4"
+          "group": "1_actions@2"
         },
         {
           "command": "review-hub.copyMcpConfig",
           "when": "view == review-hub.changes",
-          "group": "navigation@5"
+          "group": "2_config@1"
         },
         {
           "command": "review-hub.copyAgentRules",
           "when": "view == review-hub.changes",
-          "group": "navigation@6"
+          "group": "2_config@2"
         }
       ],
       "explorer/context": [
