@@ -36,70 +36,76 @@
     </projectListeners>
 
     <actions>
+        <!-- Standalone actions available in shortcuts, menus, and command search -->
+        <action id="ReviewHub.PrevHunk"
+                class="com.reviewhub.actions.PrevHunkAction"
+                text="Previous Change"
+                description="Navigate to previous pending change"
+                icon="AllIcons.Actions.MoveUp">
+            <keyboard-shortcut keymap="$default" first-keystroke="alt UP"/>
+        </action>
+        <action id="ReviewHub.NextHunk"
+                class="com.reviewhub.actions.NextHunkAction"
+                text="Next Change"
+                description="Navigate to next pending change"
+                icon="AllIcons.Actions.MoveDown">
+            <keyboard-shortcut keymap="$default" first-keystroke="alt DOWN"/>
+        </action>
+        <action id="ReviewHub.SetCheckpoint"
+                class="com.reviewhub.actions.SetCheckpointAction"
+                text="Set Checkpoint"
+                description="Accept current disk state as baseline"
+                icon="AllIcons.Actions.Commit"/>
+        <action id="ReviewHub.ClearCheckpoint"
+                class="com.reviewhub.actions.ClearCheckpointAction"
+                text="Clear Checkpoint"
+                description="Clear current checkpoint baseline"
+                icon="AllIcons.Actions.Rollback"/>
+        <action id="ReviewHub.AcceptAll"
+                class="com.reviewhub.actions.AcceptAllAction"
+                text="Accept All Changes"
+                description="Accept all pending changes and apply to disk"
+                icon="AllIcons.Actions.Checked"/>
+        <action id="ReviewHub.RejectAll"
+                class="com.reviewhub.actions.RejectAllAction"
+                text="Reject All Changes"
+                description="Reject all pending changes and restore baseline"
+                icon="AllIcons.Actions.Cancel"/>
+        <action id="ReviewHub.CopyMcpConfig"
+                class="com.reviewhub.actions.CopyMcpConfigAction"
+                text="Copy MCP Config"
+                description="Copy JSON configuration for AI Tools (Claude Code, Cline, Roo Code)"
+                icon="AllIcons.Actions.Copy"/>
+        <action id="ReviewHub.CopyAgentRules"
+                class="com.reviewhub.actions.CopyAgentRulesAction"
+                text="Copy AI Agent Rules"
+                description="Copy instruction rules for AI Tools (CLAUDE.md, .cursorrules, .clinerules, AGENTS.md)"
+                icon="AllIcons.FileTypes.Text"/>
+        <action id="ReviewHub.RegisterMcp"
+                class="com.reviewhub.actions.RegisterMcpAction"
+                text="Register MCP in AI Tools"
+                description="Auto-register review-hub-mcp into Claude Code, Cline, Roo Code"
+                icon="AllIcons.General.GearPlain"/>
+        <action id="ReviewHub.OpenWebsite"
+                class="com.reviewhub.actions.OpenWebsiteAction"
+                text="Open Website &amp; Docs"
+                description="Open Review Hub official website and documentation"
+                icon="AllIcons.General.Web"/>
+        <action id="ReviewHub.Refresh"
+                class="com.reviewhub.actions.RefreshAction"
+                text="Refresh Changes"
+                description="Refresh pending changes from Review Hub"
+                icon="AllIcons.Actions.Refresh"/>
+
+        <!-- Streamlined, clean daily ToolWindow toolbar -->
         <group id="ReviewHub.ToolBar" text="Review Hub Actions" popup="false">
-            <action id="ReviewHub.PrevHunk"
-                    class="com.reviewhub.actions.PrevHunkAction"
-                    text="Previous Change"
-                    description="Navigate to previous pending change"
-                    icon="AllIcons.Actions.MoveUp">
-                <keyboard-shortcut keymap="$default" first-keystroke="alt UP"/>
-            </action>
-            <action id="ReviewHub.NextHunk"
-                    class="com.reviewhub.actions.NextHunkAction"
-                    text="Next Change"
-                    description="Navigate to next pending change"
-                    icon="AllIcons.Actions.MoveDown">
-                <keyboard-shortcut keymap="$default" first-keystroke="alt DOWN"/>
-            </action>
+            <reference ref="ReviewHub.AcceptAll"/>
+            <reference ref="ReviewHub.RejectAll"/>
             <separator/>
-            <action id="ReviewHub.SetCheckpoint"
-                    class="com.reviewhub.actions.SetCheckpointAction"
-                    text="Set Checkpoint"
-                    description="Accept current disk state as baseline"
-                    icon="AllIcons.Actions.Commit"/>
-            <action id="ReviewHub.ClearCheckpoint"
-                    class="com.reviewhub.actions.ClearCheckpointAction"
-                    text="Clear Checkpoint"
-                    description="Clear current checkpoint baseline"
-                    icon="AllIcons.Actions.Rollback"/>
+            <reference ref="ReviewHub.SetCheckpoint"/>
+            <reference ref="ReviewHub.ClearCheckpoint"/>
             <separator/>
-            <action id="ReviewHub.AcceptAll"
-                    class="com.reviewhub.actions.AcceptAllAction"
-                    text="Accept All Changes"
-                    description="Accept all pending changes and apply to disk"
-                    icon="AllIcons.Actions.Checked"/>
-            <action id="ReviewHub.RejectAll"
-                    class="com.reviewhub.actions.RejectAllAction"
-                    text="Reject All Changes"
-                    description="Reject all pending changes and restore baseline"
-                    icon="AllIcons.Actions.Cancel"/>
-            <separator/>
-            <action id="ReviewHub.CopyMcpConfig"
-                    class="com.reviewhub.actions.CopyMcpConfigAction"
-                    text="Copy MCP Config"
-                    description="Copy JSON configuration for AI Tools (Claude Code, Cline, Roo Code)"
-                    icon="AllIcons.Actions.Copy"/>
-            <action id="ReviewHub.CopyAgentRules"
-                    class="com.reviewhub.actions.CopyAgentRulesAction"
-                    text="Copy AI Agent Rules"
-                    description="Copy instruction rules for AI Tools (CLAUDE.md, .cursorrules, .clinerules, AGENTS.md)"
-                    icon="AllIcons.FileTypes.Text"/>
-            <action id="ReviewHub.RegisterMcp"
-                    class="com.reviewhub.actions.RegisterMcpAction"
-                    text="Register MCP in AI Tools"
-                    description="Auto-register review-hub-mcp into Claude Code, Cline, Roo Code"
-                    icon="AllIcons.General.GearPlain"/>
-            <separator/>
-                        <action id="ReviewHub.OpenWebsite"
-                    class="com.reviewhub.actions.OpenWebsiteAction"
-                    text="Open Website &amp; Docs"
-                    description="Open Review Hub official website and documentation"
-                    icon="AllIcons.General.Web"/>
-            <action id="ReviewHub.Refresh"
-                    class="com.reviewhub.actions.RefreshAction"
-                    text="Refresh Changes"
-                    description="Refresh pending changes from Review Hub"
-                    icon="AllIcons.Actions.Refresh"/>
+            <reference ref="ReviewHub.Refresh"/>
         </group>
 
         <group id="ReviewHub.ToolsMenu" text="Review Hub" popup="true">

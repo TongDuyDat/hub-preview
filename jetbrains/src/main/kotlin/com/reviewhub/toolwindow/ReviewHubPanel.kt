@@ -268,6 +268,25 @@ class ReviewHubPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         menu.add(rejectAllItem)
 
+        menu.addSeparator()
+
+        val am = ActionManager.getInstance()
+        listOf(
+            "ReviewHub.CopyMcpConfig" to AllIcons.Actions.Copy,
+            "ReviewHub.CopyAgentRules" to AllIcons.FileTypes.Text,
+            "ReviewHub.RegisterMcp" to AllIcons.General.GearPlain,
+            "ReviewHub.OpenWebsite" to AllIcons.General.Web
+        ).forEach { (actionId, icon) ->
+            val act = am.getAction(actionId)
+            if (act != null) {
+                val menuItem = JBMenuItem(act.templatePresentation.text, icon)
+                menuItem.addActionListener {
+                    am.tryToExecute(act, e, changeList, "ReviewHubContextMenu", true)
+                }
+                menu.add(menuItem)
+            }
+        }
+
         menu.show(changeList, e.x, e.y)
     }
 

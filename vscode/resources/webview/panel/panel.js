@@ -22,9 +22,13 @@
     s.setAttribute("height", String(sDim));
     s.style.width = sDim + "px";
     s.style.height = sDim + "px";
+    s.style.minWidth = sDim + "px";
+    s.style.minHeight = sDim + "px";
+    s.style.maxWidth = sDim + "px";
+    s.style.maxHeight = sDim + "px";
     s.style.flexShrink = "0";
     const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    p.setAttribute("d", pathD);
+    p.setAttribute("d", pathD || "");
     p.setAttribute("fill", "currentColor");
     p.setAttribute("fill-rule", "evenodd");
     s.appendChild(p);
@@ -56,7 +60,8 @@
 
     // File list icons
     file: "M4 1.5H11l3.5 3.5V14.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.5a1 1 0 0 1 1-1zm6.5 1V5H14L10.5 2.5z",
-    diff: "M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1zM9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3z"
+    diff: "M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1zM9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3z",
+    more: "M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"
   };
 
   function toolButton(iconKey, title, className, onClick) {
@@ -73,23 +78,7 @@
   function renderToolbar() {
     const bar = el("div", "jb-toolbar");
 
-    // Group 1: Navigation
-    const gNav = el("div", "tool-group");
-    gNav.appendChild(toolButton("prev", "Previous Change (Alt+Up)", "", function () { send("prevHunk"); }));
-    gNav.appendChild(toolButton("next", "Next Change (Alt+Down)", "", function () { send("nextHunk"); }));
-    bar.appendChild(gNav);
-
-    bar.appendChild(el("div", "tool-separator"));
-
-    // Group 2: Checkpoint (-o- & ↶)
-    const gCp = el("div", "tool-group");
-    gCp.appendChild(toolButton("commit", "Set Checkpoint (Accept current disk state as baseline)", "", function () { send("setCheckpoint"); }));
-    gCp.appendChild(toolButton("rollback", "Clear Checkpoint (Clear current checkpoint baseline)", "", function () { send("clearCheckpoint"); }));
-    bar.appendChild(gCp);
-
-    bar.appendChild(el("div", "tool-separator"));
-
-    // Group 3: Decisions (✓ & ✕)
+    // Group 1: Review Decisions (✓ & ✕)
     const gDec = el("div", "tool-group");
     gDec.appendChild(toolButton("accept", "Accept All Changes", "accept-all", function () { send("acceptAll"); }));
     gDec.appendChild(toolButton("reject", "Reject All Changes", "reject-all", function () { send("rejectAll"); }));
@@ -97,20 +86,27 @@
 
     bar.appendChild(el("div", "tool-separator"));
 
-    // Group 4: Rules & MCP ([=], ≡, ⚙)
-    const gTools = el("div", "tool-group");
-    gTools.appendChild(toolButton("copy", "Copy MCP Config (Claude Code, Cline, Roo Code)", "", function () { send("copyMcpConfig"); }));
-    gTools.appendChild(toolButton("rules", "Copy AI Agent Rules (AGENTS.md, .cursorrules)", "", function () { send("copyAgentRules"); }));
-    gTools.appendChild(toolButton("gear", "Register MCP in AI Tools", "", function () { send("registerMcp"); }));
-    bar.appendChild(gTools);
+    // Group 2: Checkpoint (-o- & ↶)
+    const gCp = el("div", "tool-group");
+    gCp.appendChild(toolButton("commit", "Set Checkpoint", "", function () { send("setCheckpoint"); }));
+    gCp.appendChild(toolButton("rollback", "Clear Checkpoint", "", function () { send("clearCheckpoint"); }));
+    bar.appendChild(gCp);
 
     bar.appendChild(el("div", "tool-separator"));
 
-    // Group 5: Web & Refresh (🌐 & ↻)
+    // Group 3: Refresh (↻)
     const gSync = el("div", "tool-group");
-    gSync.appendChild(toolButton("website", "Open Website & Docs", "", function () { send("openWebsite"); }));
     gSync.appendChild(toolButton("refresh", "Refresh Changes", "", function () { send("refresh"); }));
     bar.appendChild(gSync);
+
+    bar.appendChild(el("div", "spacer"));
+
+    // Group 4: More Actions (...)
+    const gMore = el("div", "tool-group");
+    gMore.appendChild(toolButton("more", "More Actions (Setup AI Tools, Rules, Docs...)", "", function () {
+      send("openMoreMenu");
+    }));
+    bar.appendChild(gMore);
 
     return bar;
   }
@@ -202,6 +198,25 @@
       const empty = el("div", "empty-container");
       empty.appendChild(el("div", "empty-title", "No pending changes"));
       empty.appendChild(el("div", "empty-desc", "Edits proposed by AI coding agents will appear here for review."));
+
+      // Helpful Setup Actions right when empty
+      const setupDiv = el("div", "empty-setup-actions");
+      const btnMcp = el("button", "setup-pill", "📋 Copy MCP Config");
+      btnMcp.title = "Copy JSON configuration for Claude Code, Cline, Roo Code";
+      btnMcp.addEventListener("click", function () { send("copyMcpConfig"); });
+      setupDiv.appendChild(btnMcp);
+
+      const btnRules = el("button", "setup-pill", "📄 Agent Rules");
+      btnRules.title = "Copy AI agent instructions (AGENTS.md, .cursorrules)";
+      btnRules.addEventListener("click", function () { send("copyAgentRules"); });
+      setupDiv.appendChild(btnRules);
+
+      const btnReg = el("button", "setup-pill", "⚙ Register Tools");
+      btnReg.title = "Auto-register MCP server in Claude Code, Cline, Roo Code";
+      btnReg.addEventListener("click", function () { send("registerMcp"); });
+      setupDiv.appendChild(btnReg);
+
+      empty.appendChild(setupDiv);
       content.appendChild(empty);
     } else {
       const list = el("div", "file-list");
