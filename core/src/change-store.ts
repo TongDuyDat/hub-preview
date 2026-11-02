@@ -109,6 +109,8 @@ export const DEFAULT_EXCLUDES = [
   "**/*.zip",
   "**/*.tar",
   "**/*.gz",
+  "**/*.vsix",
+  "**/*.tgz",
   "**/*.pdf",
   "**/*.png",
   "**/*.jpg",

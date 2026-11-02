@@ -16,7 +16,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ChangeStore } from "../../../core/src/change-store";
 import { globToRegExp } from "../../../core/src/change-store";
-import { gitChangedFiles } from "../../../core/src/git-baseline";
+import { gitChangedFiles, gitIsIgnored } from "../../../core/src/git-baseline";
 import { normalizeAbsPath } from "../../../core/src/file-snapshot";
 
 const POLL_MS = 3000;
@@ -243,6 +243,9 @@ export class WorkspaceWatcher implements vscode.Disposable {
       return;
     }
     if (isExcluded(relPath, this.excludeGlobs)) {
+      return;
+    }
+    if (await gitIsIgnored(workspace, relPath)) {
       return;
     }
     const cs = await this.store.observe(workspace, relPath);

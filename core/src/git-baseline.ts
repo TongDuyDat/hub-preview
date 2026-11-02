@@ -161,3 +161,9 @@ export async function gitChangedFiles(
   }
   return out;
 }
+
+/** Check if a path is ignored by git (.gitignore, .git/info/exclude, etc.). */
+export async function gitIsIgnored(workspace: string, relPath: string): Promise<boolean> {
+  const r = await run(["check-ignore", "-q", relPath], workspace);
+  return r.ok;
+}
