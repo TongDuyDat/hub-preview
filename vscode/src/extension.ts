@@ -346,7 +346,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         watcher.noteSelfWrite(cs.absPath);
       }
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(cs.absPath));
-      const editor = await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: false });
+      const editor = await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false, viewColumn: vscode.ViewColumn.One });
       if (hunkId) {
         const hunk = cs.hunks.find((h) => h.id === hunkId);
         if (hunk) {
@@ -754,10 +754,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Open the real file on disk (the new content), for editing in place.
     vscode.commands.registerCommand("review-hub.openFile", async (arg?: FileNode | vscode.Uri | string) => {
       const changeId = await resolveChange(arg);
-      const cs = changeId ? hub.store.findById(changeId) : undefined;
-      if (cs) {
-        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(cs.absPath));
-        await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: false });
+      if (changeId) {
+        await openRealFile(changeId);
       }
     }),
     vscode.commands.registerCommand("review-hub.acceptHunk", (changeId: string, hunkId: string) =>

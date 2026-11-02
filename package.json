@@ -16,7 +16,7 @@
     "watch": "node esbuild.js --watch",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/test.mjs",
-    "package:vscode": "cd vscode && vsce package --no-dependencies",
+    "package:vscode": "npm run build && cd vscode && vsce package --no-dependencies",
     "build:mcp": "node esbuild.js",
     "pack:mcp": "node esbuild.js && cd mcp && npm pack",
     "publish:mcp": "node esbuild.js && cd mcp && npm publish --access public"
