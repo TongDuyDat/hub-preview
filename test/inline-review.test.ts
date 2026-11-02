@@ -165,6 +165,6 @@ test("the real file carries Accept/Reject CodeLens, and a decided hunk looks dec
   store.accept(cs.id, [cs.hunks[0].id]);
   const after = titles();
   assert.ok(after.some((t) => t.includes("Accepted")), "the accepted hunk shows an 'Accepted' badge");
-  assert.ok(after.some((t) => t.includes("Undo")), "the accepted hunk offers Undo");
+  assert.ok(!after.some((t) => t.includes("Undo")), "the accepted hunk does not offer Undo");
   assert.ok(after.some((t) => t.includes("$(check) Accept")), "the still-pending hunk keeps its Accept button");
 });

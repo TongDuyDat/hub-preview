@@ -136,16 +136,6 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
           command: "",
           tooltip: "This hunk's new lines are kept",
         }),
-        new vscode.CodeLens(range, {
-          title: "$(discard) Undo",
-          command: "review-hub.rejectHunk",
-          arguments: [cs.id, hunk.id],
-          tooltip: "Undo — restore this hunk's baseline lines",
-        }),
-        new vscode.CodeLens(range, {
-          title: `hunk ${index + 1}/${total} · ✓ accepted`,
-          command: "",
-        }),
       ];
     }
 
@@ -155,16 +145,6 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
           title: "$(chrome-close) Rejected",
           command: "",
           tooltip: "This hunk was restored to its baseline",
-        }),
-        new vscode.CodeLens(range, {
-          title: "$(discard) Undo",
-          command: "review-hub.acceptHunk",
-          arguments: [cs.id, hunk.id],
-          tooltip: "Undo — keep this hunk's new lines instead",
-        }),
-        new vscode.CodeLens(range, {
-          title: `hunk ${index + 1}/${total} · ✗ rejected`,
-          command: "",
         }),
       ];
     }
