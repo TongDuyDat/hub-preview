@@ -74,23 +74,19 @@
         <action id="ReviewHub.CopyMcpConfig"
                 class="com.reviewhub.actions.CopyMcpConfigAction"
                 text="Copy MCP Config"
-                description="Copy JSON configuration for AI Tools (Claude Code, Cline, Roo Code)"
-                icon="AllIcons.Actions.Copy"/>
+                description="Copy JSON configuration for AI Tools (Claude Code, Cline, Roo Code)"/>
         <action id="ReviewHub.CopyAgentRules"
                 class="com.reviewhub.actions.CopyAgentRulesAction"
                 text="Copy AI Agent Rules"
-                description="Copy instruction rules for AI Tools (CLAUDE.md, .cursorrules, .clinerules, AGENTS.md)"
-                icon="AllIcons.FileTypes.Text"/>
+                description="Copy instruction rules for AI Tools (CLAUDE.md, .cursorrules, .clinerules, AGENTS.md)"/>
         <action id="ReviewHub.RegisterMcp"
                 class="com.reviewhub.actions.RegisterMcpAction"
                 text="Register MCP in AI Tools"
-                description="Auto-register review-hub-mcp into Claude Code, Cline, Roo Code"
-                icon="AllIcons.General.GearPlain"/>
+                description="Auto-register review-hub-mcp into Claude Code, Cline, Roo Code"/>
         <action id="ReviewHub.OpenWebsite"
                 class="com.reviewhub.actions.OpenWebsiteAction"
                 text="Open Website &amp; Docs"
-                description="Open Review Hub official website and documentation"
-                icon="AllIcons.General.Web"/>
+                description="Open Review Hub official website and documentation"/>
         <action id="ReviewHub.Refresh"
                 class="com.reviewhub.actions.RefreshAction"
                 text="Refresh Changes"
@@ -98,6 +94,15 @@
                 icon="AllIcons.Actions.Refresh"/>
 
         <!-- Streamlined, clean daily ToolWindow toolbar -->
+        
+        <group id="ReviewHub.MoreGroup" text="More Options" icon="AllIcons.Actions.More" popup="true">
+            <reference ref="ReviewHub.CopyMcpConfig"/>
+            <reference ref="ReviewHub.CopyAgentRules"/>
+            <reference ref="ReviewHub.RegisterMcp"/>
+            <separator/>
+            <reference ref="ReviewHub.OpenWebsite"/>
+        </group>
+
         <group id="ReviewHub.ToolBar" text="Review Hub Actions" popup="false">
             <reference ref="ReviewHub.AcceptAll"/>
             <reference ref="ReviewHub.RejectAll"/>
@@ -106,6 +111,8 @@
             <reference ref="ReviewHub.ClearCheckpoint"/>
             <separator/>
             <reference ref="ReviewHub.Refresh"/>
+            <separator/>
+            <reference ref="ReviewHub.MoreGroup"/>
         </group>
 
         <group id="ReviewHub.ToolsMenu" text="Review Hub" popup="true">
