@@ -160,39 +160,13 @@
       "review-hub": [
         {
           "id": "review-hub.changes",
-          "name": "Changes",
+          "name": "Review Hub",
           "type": "webview"
         }
       ]
     },
     "menus": {
-      "view/title": [
-        {
-          "command": "review-hub.refresh",
-          "when": "view == review-hub.changes",
-          "group": "navigation@1"
-        },
-        {
-          "command": "review-hub.setCheckpoint",
-          "when": "view == review-hub.changes",
-          "group": "navigation@2"
-        },
-        {
-          "command": "review-hub.copyMcpConfig",
-          "when": "view == review-hub.changes",
-          "group": "2_config@1"
-        },
-        {
-          "command": "review-hub.copyAgentRules",
-          "when": "view == review-hub.changes",
-          "group": "2_config@2"
-        },
-        {
-          "command": "review-hub.openWebsite",
-          "when": "view == review-hub.changes",
-          "group": "2_config@3"
-        }
-      ],
+
       "explorer/context": [
         {
           "command": "review-hub.openDiff",
