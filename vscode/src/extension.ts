@@ -1,9 +1,10 @@
+import { normalizeWorkspace } from "../../core/src/file-snapshot";
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Logger } from "./logger";
 import { HubServer } from "../../core/src/hub-server";
-import { registry, pidAlive, defaultBaseDir, type HubEntry } from "../../core/src/registry";
+import { createRegistry, pidAlive, defaultBaseDir, type HubEntry } from "../../core/src/registry";
 import { ChangeContentProvider } from "./ui/editor/content-provider";
 import { HunkCodeLensProvider, DiffView } from "./ui/editor/diff-view";
 import { ReviewPanelProvider, type PanelActions } from "./ui/webview/review-panel";
@@ -72,6 +73,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   const logger = new Logger("Review Hub");
   const baseDir = defaultBaseDir();
+  const registry = createRegistry(baseDir);
 
   const hub = new HubServer({
     baseDir,
@@ -175,13 +177,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let staged: StagedReview;
 
   const changeForPath = (fsPath: string): ChangeSet | undefined => {
+    const isWin = process.platform === "win32";
+    const normFs = fsPath.replace(/\\/g, "/");
     for (const ws of workspaceFolders()) {
-      const root = ws.replace(/[\\/]+$/, "");
-      if (!fsPath.startsWith(root + "/") && !fsPath.startsWith(root + "\\")) {
+      const root = ws.replace(/[\\/]+$/, "").replace(/\\/g, "/");
+      const compFs = isWin ? normFs.toLowerCase() : normFs;
+      const compRoot = isWin ? root.toLowerCase() : root;
+      if (!compFs.startsWith(compRoot + "/")) {
         continue;
       }
-      const rel = fsPath.slice(root.length + 1).split("\\").join("/");
-      const cs = hub.store.findChangeByPath(root, rel);
+      const rel = normFs.slice(root.length + 1);
+      const cs = hub.store.findChangeByPath(ws, rel) ?? hub.store.findChangeByPath(root, rel);
       if (cs && cs.origin === "mcp") {
         return cs;
       }

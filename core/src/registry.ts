@@ -59,13 +59,14 @@ export function defaultBaseDir(): string {
   return process.env.REVIEW_HUB_DIR ?? path.join(os.homedir(), ".review-hub");
 }
 
-export function createRegistry(baseDir = defaultBaseDir()): Registry {
-  const filePath = path.join(baseDir, REGISTRY_FILE);
-  const lockPath = path.join(baseDir, LOCK_FILE);
+export function createRegistry(explicitBaseDir?: string): Registry {
+  const getBase = () => explicitBaseDir ?? defaultBaseDir();
+  const getFilePath = () => path.join(getBase(), REGISTRY_FILE);
+  const getLockPath = () => path.join(getBase(), LOCK_FILE);
 
   const readEntry = (): HubEntry | undefined => {
     try {
-      const parsed: unknown = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      const parsed: unknown = JSON.parse(fs.readFileSync(getFilePath(), "utf8"));
       return isEntry(parsed) ? parsed : undefined;
     } catch {
       return undefined;
@@ -73,7 +74,9 @@ export function createRegistry(baseDir = defaultBaseDir()): Registry {
   };
 
   const writeEntry = (entry: HubEntry): void => {
-    fs.mkdirSync(baseDir, { recursive: true });
+    const base = getBase();
+    const filePath = getFilePath();
+    fs.mkdirSync(base, { recursive: true });
     const tmp = `${filePath}.${process.pid}.${Math.random().toString(36).slice(2, 6)}.tmp`;
     fs.writeFileSync(tmp, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600 });
     try {
@@ -98,7 +101,7 @@ export function createRegistry(baseDir = defaultBaseDir()): Registry {
 
   const clearEntry = (): void => {
     try {
-      fs.unlinkSync(filePath);
+      fs.unlinkSync(getFilePath());
     } catch {
       // nothing stored
     }
@@ -106,14 +109,16 @@ export function createRegistry(baseDir = defaultBaseDir()): Registry {
 
   const lockIsStale = (): boolean => {
     try {
-      return Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_STALE_MS;
+      return Date.now() - fs.statSync(getLockPath()).mtimeMs > LOCK_STALE_MS;
     } catch {
       return true;
     }
   };
 
   const acquireLock = async (): Promise<void> => {
-    fs.mkdirSync(baseDir, { recursive: true });
+    const base = getBase();
+    const lockPath = getLockPath();
+    fs.mkdirSync(base, { recursive: true });
     const deadline = Date.now() + LOCK_TIMEOUT_MS;
     for (;;) {
       try {
@@ -147,7 +152,7 @@ export function createRegistry(baseDir = defaultBaseDir()): Registry {
       return await fn();
     } finally {
       try {
-        fs.unlinkSync(lockPath);
+        fs.unlinkSync(getLockPath());
       } catch {
         // already released
       }
@@ -155,8 +160,9 @@ export function createRegistry(baseDir = defaultBaseDir()): Registry {
   };
 
   const watch = (onChange: (entry: HubEntry) => void): (() => void) => {
-    fs.mkdirSync(baseDir, { recursive: true });
-    const watcher = fs.watch(baseDir, (_event, filename) => {
+    const base = getBase();
+    fs.mkdirSync(base, { recursive: true });
+    const watcher = fs.watch(base, (_event, filename) => {
       if (filename !== null && filename !== REGISTRY_FILE) {
         return;
       }

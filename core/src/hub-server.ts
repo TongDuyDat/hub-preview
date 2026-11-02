@@ -1,3 +1,4 @@
+import { normalizeWorkspace } from "./file-snapshot";
 /**
  * The Review Hub HTTP server. Runs inside the VS Code extension process and is the
  * single landing place for both the extension UI and the stdio MCP servers that
@@ -152,7 +153,11 @@ export class HubServer {
       return isWin ? r.toLowerCase() : r;
     };
     const compReq = norm(requested);
-    const known = this.store.listKnownWorkspaces();
+    const known = [
+      ...(this.windowStates?.() ?? []).flatMap((s) => s.folders),
+      ...(this.liveWorkspaces?.() ?? []),
+      ...this.store.listKnownWorkspaces(),
+    ];
     const hit = known.find((ws) => norm(ws) === compReq);
     return hit ?? requested;
   }
