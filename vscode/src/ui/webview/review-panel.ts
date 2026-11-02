@@ -122,6 +122,9 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
       case "copyAgentRules":
         void vscode.commands.executeCommand("review-hub.copyAgentRules");
         return;
+      case "showHubInfo":
+        void vscode.commands.executeCommand("review-hub.showHubInfo");
+        return;
       case "prevHunk":
         void vscode.commands.executeCommand("workbench.action.editor.previousChange");
         return;
