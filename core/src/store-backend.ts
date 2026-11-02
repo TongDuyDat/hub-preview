@@ -13,7 +13,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { writeFileAtomic, deleteFileSafe, hashContent } from "./file-snapshot";
+import { writeFileAtomic, deleteFileSafe, hashContent, normalizeWorkspace, normalizeAbsPath } from "./file-snapshot";
 import type { ChangeSet } from "./types";
 import type { SqlDriver } from "./sqlite";
 
@@ -333,7 +333,7 @@ export class JsonBackend implements StoreBackend {
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS checkpoints (
-  workspace  TEXT PRIMARY KEY,
+  workspace  TEXT PRIMARY KEY COLLATE NOCASE,
   set_at     INTEGER NOT NULL,
   files_json TEXT NOT NULL
 );
@@ -466,7 +466,7 @@ export class SqliteBackend implements StoreBackend {
 
   readCheckpoint(workspace: string): CheckpointRecord | undefined {
     const row = this.driver.get<{ workspace: string; set_at: number; files_json: string }>(
-      "SELECT workspace, set_at, files_json FROM checkpoints WHERE workspace = ?",
+      "SELECT workspace, set_at, files_json FROM checkpoints WHERE workspace = ? COLLATE NOCASE",
       workspace,
     );
     if (!row) {
@@ -489,7 +489,7 @@ export class SqliteBackend implements StoreBackend {
   }
 
   clearCheckpoint(workspace: string): void {
-    this.driver.run("DELETE FROM checkpoints WHERE workspace = ?", workspace);
+    this.driver.run("DELETE FROM checkpoints WHERE workspace = ? COLLATE NOCASE", workspace);
     this.clearChanges(workspace);
   }
 
@@ -570,7 +570,7 @@ export class SqliteBackend implements StoreBackend {
 
   getChange(workspace: string, id: string): ChangeSet | undefined {
     const row = this.driver.get<ChangeRow>(
-      "SELECT * FROM changes WHERE workspace = ? AND id = ?",
+      "SELECT * FROM changes WHERE workspace = ? COLLATE NOCASE AND id = ?",
       workspace,
       id,
     );
@@ -590,7 +590,7 @@ export class SqliteBackend implements StoreBackend {
 
   findChangeByPath(workspace: string, relPath: string): ChangeSet | undefined {
     const row = this.driver.get<ChangeRow>(
-      "SELECT * FROM changes WHERE workspace = ? AND path = ? AND status != 'resolved'",
+      "SELECT * FROM changes WHERE workspace = ? COLLATE NOCASE AND path = ? AND status != 'resolved'",
       workspace,
       relPath.split(path.sep).join("/"),
     );
@@ -602,7 +602,7 @@ export class SqliteBackend implements StoreBackend {
 
   listChangeSets(workspace: string): ChangeSet[] {
     const rows = this.driver.all<ChangeRow>(
-      "SELECT * FROM changes WHERE workspace = ? AND status != 'resolved' ORDER BY path",
+      "SELECT * FROM changes WHERE workspace = ? COLLATE NOCASE AND status != 'resolved' ORDER BY path",
       workspace,
     );
     if (rows.length === 0) {
@@ -623,11 +623,11 @@ export class SqliteBackend implements StoreBackend {
   }
 
   removeChange(workspace: string, id: string): void {
-    this.driver.run("DELETE FROM changes WHERE workspace = ? AND id = ?", workspace, id);
+    this.driver.run("DELETE FROM changes WHERE workspace = ? COLLATE NOCASE AND id = ?", workspace, id);
   }
 
   clearChanges(workspace: string): void {
-    this.driver.run("DELETE FROM changes WHERE workspace = ?", workspace);
+    this.driver.run("DELETE FROM changes WHERE workspace = ? COLLATE NOCASE", workspace);
   }
 
   pruneResolved(maxAgeMs: number): void {

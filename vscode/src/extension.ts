@@ -335,6 +335,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // it does not *run* before that const is initialised.
   let openReviewTab: (changeId: string, targetHunkId?: string) => void;
 
+    const openRealFile = async (changeId: string, hunkId?: string) => {
+    const cs = hub.store.findById(changeId);
+    if (!cs) return;
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(cs.absPath));
+      const editor = await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: false });
+      if (hunkId) {
+        const hunk = cs.hunks.find((h) => h.id === hunkId);
+        if (hunk) {
+          const line = Math.max(0, hunk.newStart - 1);
+          const pos = new vscode.Position(line, 0);
+          editor.selection = new vscode.Selection(pos, pos);
+          editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+        }
+      }
+    } catch (err) {
+      logger.error(`failed to open file for ${changeId}: ${String(err)}`);
+    }
+  };
+
   const panelActions: PanelActions = {
     acceptHunk: (changeId, hunkId) => void decide(changeId, [hunkId], "accept"),
     rejectHunk: (changeId, hunkId) => void decide(changeId, [hunkId], "reject"),

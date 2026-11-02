@@ -161,3 +161,19 @@ export function resolveInside(workspace: string, relPath: string): string | null
 export function toPosix(p: string): string {
   return p.replace(/\\/g, "/");
 }
+
+export function normalizeWorkspace(workspace: string): string {
+  let p = workspace.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (process.platform === "win32") {
+    p = p.replace(/^[a-zA-Z]:/, (m) => m.toLowerCase());
+  }
+  return p;
+}
+
+export function normalizeAbsPath(absPath: string): string {
+  let p = absPath.replace(/\\/g, "/");
+  if (process.platform === "win32") {
+    p = p.replace(/^[a-zA-Z]:/, (m) => m.toLowerCase());
+  }
+  return p;
+}
