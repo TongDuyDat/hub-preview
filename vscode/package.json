@@ -238,8 +238,8 @@
         },
         "review-hub.watchDirectWrites": {
           "type": "boolean",
-          "default": true,
-          "description": "Watch the workspace for direct file writes by agents (the fallback that works regardless of the agent's permission mode)."
+          "default": false,
+          "description": "Watch the workspace for direct file writes by agents. Disabled by default: only MCP-proposed changes are tracked."
         },
         "review-hub.autoOpenDiff": {
           "type": "boolean",
