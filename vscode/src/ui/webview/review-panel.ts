@@ -104,6 +104,15 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
       case "setCheckpoint":
         this.actions.setCheckpoint();
         return;
+      case "clearCheckpoint":
+        void vscode.commands.executeCommand("review-hub.clearCheckpoint");
+        return;
+      case "copyMcpConfig":
+        void vscode.commands.executeCommand("review-hub.copyMcpConfig");
+        return;
+      case "registerMcp":
+        void vscode.commands.executeCommand("review-hub.registerMcp");
+        return;
       case "refresh":
         void vscode.commands.executeCommand("review-hub.refresh");
         return;
