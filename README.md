@@ -1,8 +1,8 @@
 # Review Hub (VS Code & JetBrains IDEs)
 
-**Tác giả:** Hung, Tong Duy Dat
+**Tác giả:** Hung, Tong Duy Dat (Review Hub v0.3.0 Release)
 
-Xem **chính xác** AI coding agent đã đổi gì trong project của bạn — **bất kể agent chạy ở chế độ quyền nào** — và duyệt/từ chối **từng khối (hunk) một**, kiểu hunkwise.
+Xem **chính xác 100%** AI coding agent đã đổi gì trong project của bạn — **bất kể agent chạy ở chế độ quyền nào** — và duyệt/từ chối **từng khối (hunk) một** độc lập, trực quan và tiện lợi.
 
 Hỗ trợ đồng thời cả **Visual Studio Code** và **JetBrains IDEs** (IntelliJ IDEA, WebStorm, PyCharm, CLion, GoLand, Android Studio, PhpStorm, Rider, RustRover...).
 
