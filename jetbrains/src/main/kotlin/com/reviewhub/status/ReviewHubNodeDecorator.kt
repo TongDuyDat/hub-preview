@@ -15,7 +15,7 @@ class ReviewHubNodeDecorator : ProjectViewNodeDecorator {
 
         val hubManager = project.getService(HubManager::class.java)
         val change = hubManager.changes.find {
-            PathUtil.pathsMatch(it.path, relPath) && it.status == "pending"
+            PathUtil.pathsMatch(it.path, relPath) && it.status != "resolved"
         } ?: return
 
         data.addText(" [${change.pending}]", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)

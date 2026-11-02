@@ -127,9 +127,9 @@ class HubManager(private val project: Project) : Disposable {
         try {
             val newChanges = c.listChanges(workspace)
             if (newChanges != changes) {
-                val previousPendingPaths = changes.filter { it.status == "pending" }.map { it.path }.toSet()
+                val previousPendingPaths = changes.filter { it.status != "resolved" }.map { it.path }.toSet()
                 changes = newChanges
-                val currentPending = changes.filter { it.status == "pending" }
+                val currentPending = changes.filter { it.status != "resolved" }
                 val newlyAddedPending = currentPending.filter { it.path !in previousPendingPaths }
 
                 notifyListeners()
@@ -198,7 +198,7 @@ class HubManager(private val project: Project) : Disposable {
 
     fun findChange(relPath: String): ChangeSummary? {
         return changes.find {
-            PathUtil.pathsMatch(it.path, relPath) && it.status == "pending"
+            PathUtil.pathsMatch(it.path, relPath) && it.status != "resolved"
         }
     }
 

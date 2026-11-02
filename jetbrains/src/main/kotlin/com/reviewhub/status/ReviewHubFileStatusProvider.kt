@@ -12,7 +12,7 @@ class ReviewHubFileStatusProvider(private val project: Project) : FileStatusProv
         val relPath = PathUtil.toRelativePath(project, virtualFile) ?: return null
         val hubManager = project.getService(HubManager::class.java)
         val change = hubManager.changes.find {
-            PathUtil.pathsMatch(it.path, relPath) && it.status == "pending"
+            PathUtil.pathsMatch(it.path, relPath) && it.status != "resolved"
         } ?: return null
 
         return if (change.applied) FileStatus.MODIFIED else FileStatus.ADDED

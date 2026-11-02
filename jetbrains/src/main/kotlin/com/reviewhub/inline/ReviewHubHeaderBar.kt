@@ -37,7 +37,7 @@ class ReviewHubHeaderBar(
         val hubManager = project.getService(HubManager::class.java)
         val basePath = project.basePath ?: return
         val currentChange = hubManager.findChange(relPath)
-        val pendingFiles = hubManager.changes.filter { it.status == "pending" }
+        val pendingFiles = hubManager.changes.filter { it.status != "resolved" }
         val fileIndex = pendingFiles.indexOfFirst { PathUtil.pathsMatch(it.path, relPath) }
 
         // --- Left Panel: Logo, File Selector, Hunk Counter ---
@@ -126,7 +126,7 @@ class ReviewHubHeaderBar(
                         ReviewHubInlineReview.clearFileReview(project, vf)
                     }
                     VirtualFileManager.getInstance().asyncRefresh(null)
-                    val remaining = hubManager.changes.filter { it.status == "pending" && it.id != currentChange.id }
+                    val remaining = hubManager.changes.filter { it.status != "resolved" && it.id != currentChange.id }
                     if (remaining.isNotEmpty()) {
                         openFile(project, remaining.first().path)
                     }
@@ -149,7 +149,7 @@ class ReviewHubHeaderBar(
                         ReviewHubInlineReview.clearFileReview(project, vf)
                     }
                     VirtualFileManager.getInstance().asyncRefresh(null)
-                    val remaining = hubManager.changes.filter { it.status == "pending" && it.id != currentChange.id }
+                    val remaining = hubManager.changes.filter { it.status != "resolved" && it.id != currentChange.id }
                     if (remaining.isNotEmpty()) {
                         openFile(project, remaining.first().path)
                     }

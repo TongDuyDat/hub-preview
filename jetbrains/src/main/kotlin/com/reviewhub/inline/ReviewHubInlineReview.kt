@@ -567,7 +567,6 @@ object ReviewHubInlineReview {
                     if (!file.exists()) {
                         FileEditorManager.getInstance(project).closeFile(vf)
                     } else {
-                        reloadDocumentFromDisk(project, vf)
                         val editors = FileEditorManager.getInstance(project).getEditors(vf)
                         for (e in editors) {
                             if (e is TextEditor && !e.editor.isDisposed) {
