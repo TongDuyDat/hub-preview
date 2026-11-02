@@ -54,7 +54,7 @@
     return row;
   }
 
-  function renderFile(file) {
+    function renderFile(file) {
     const wrap = el("div", "file");
     const head = el("div", "file-head");
     const open = expanded.has(file.id);
@@ -72,15 +72,10 @@
     if (file.isDeleted) head.appendChild(el("span", "badge no", "deleted"));
     if (file.binary) head.appendChild(el("span", "badge", "binary"));
     head.appendChild(el("span", "spacer"));
-    head.appendChild(el("span", "stat", "+" + file.added + " \u2212" + file.removed));
-    head.appendChild(button("\u2713", "Accept every hunk in this file", function () {
-      send("acceptFile", { changeId: file.id });
-    }));
-    head.appendChild(button("\u21ba", "Reject every hunk in this file", function () {
-      send("rejectFile", { changeId: file.id });
-    }));
+    if (file.added > 0) head.appendChild(el("span", "stat add", "+" + file.added));
+    if (file.removed > 0) head.appendChild(el("span", "stat del", "\u2212" + file.removed));
     head.addEventListener("click", function () {
-      send("openDiff", { changeId: file.id });
+      send("openFile", { changeId: file.id });
     });
     wrap.appendChild(head);
     if (open) {

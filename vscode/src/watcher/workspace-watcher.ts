@@ -17,6 +17,7 @@ import * as path from "node:path";
 import type { ChangeStore } from "../../../core/src/change-store";
 import { globToRegExp } from "../../../core/src/change-store";
 import { gitChangedFiles } from "../../../core/src/git-baseline";
+import { normalizeAbsPath } from "../../../core/src/file-snapshot";
 
 const POLL_MS = 3000;
 const SCAN_MAX_FILES = 20_000;
@@ -237,7 +238,8 @@ export class WorkspaceWatcher implements vscode.Disposable {
   /** Observe one path and surface it if it represents a change. */
   private async record(workspace: string, relPath: string): Promise<void> {
     const abs = path.join(workspace, relPath);
-    if (this.selfWrites.has(abs)) {
+    const key = process.platform === "win32" ? abs.toLowerCase().replace(/\\/g, "/") : abs;
+    if (this.selfWrites.has(key)) {
       return;
     }
     if (isExcluded(relPath, this.excludeGlobs)) {
@@ -254,7 +256,8 @@ export class WorkspaceWatcher implements vscode.Disposable {
       return;
     }
     const abs = uri.fsPath;
-    if (this.selfWrites.has(abs)) {
+    const key = process.platform === "win32" ? abs.toLowerCase().replace(/\\/g, "/") : abs;
+    if (this.selfWrites.has(key)) {
       return;
     }
     const rel = this.relativeToWorkspace(abs);
