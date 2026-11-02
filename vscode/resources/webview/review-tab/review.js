@@ -55,19 +55,13 @@
     bar.appendChild(el("span", "spacer"));
     if (hunk.decision === "accepted") {
       bar.appendChild(el("span", "badge ok", "\u2713 accepted"));
-      bar.appendChild(button("\u21ba Undo", "Undo — restore baseline lines", function () {
-        send("rejectHunk", { changeId: s.changeId, hunkId: hunk.id });
-      }));
     } else if (hunk.decision === "rejected") {
       bar.appendChild(el("span", "badge no", "\u2717 rejected"));
-      bar.appendChild(button("\u2713 Undo", "Undo — keep proposed lines", function () {
-        send("acceptHunk", { changeId: s.changeId, hunkId: hunk.id });
-      }));
     } else {
       bar.appendChild(button("\u2713 Accept", "Keep this hunk's new lines", function () {
         send("acceptHunk", { changeId: s.changeId, hunkId: hunk.id });
       }));
-      bar.appendChild(button("\u21ba Reject", "Restore this hunk's baseline lines", function () {
+      bar.appendChild(button("\u2717 Reject", "Restore this hunk's baseline lines", function () {
         send("rejectHunk", { changeId: s.changeId, hunkId: hunk.id });
       }));
     }

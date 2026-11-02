@@ -70,7 +70,7 @@
     actions.appendChild(button("\u2713 Accept All", "Accept every change in every project", function () {
       send("acceptAll");
     }));
-    actions.appendChild(button("\u21ba Discard All", "Reject every change in every project", function () {
+    actions.appendChild(button("\u2717 Reject All", "Reject every change in every project", function () {
       send("rejectAll");
     }));
     actions.appendChild(button("\u27f3 Checkpoint", "Set a new checkpoint (accept the current state)", function () {
