@@ -173,16 +173,6 @@
           "group": "navigation@2"
         },
         {
-          "command": "review-hub.acceptAll",
-          "when": "view == review-hub.changes",
-          "group": "1_actions@1"
-        },
-        {
-          "command": "review-hub.rejectAll",
-          "when": "view == review-hub.changes",
-          "group": "1_actions@2"
-        },
-        {
           "command": "review-hub.copyMcpConfig",
           "when": "view == review-hub.changes",
           "group": "2_config@1"
