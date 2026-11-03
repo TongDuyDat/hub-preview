@@ -4,6 +4,11 @@ const path = require("node:path");
 
 const watch = process.argv.includes("--watch");
 
+// Generate the extension icon from its reviewable image source.
+const icon = Buffer.from(fs.readFileSync(path.join(__dirname, "vscode/resources/icons/review-hub.png.base64"), "utf8"), "base64");
+fs.mkdirSync(path.join(__dirname, "vscode/dist"), { recursive: true });
+fs.writeFileSync(path.join(__dirname, "vscode/dist/icon.png"), icon);
+
 const common = {
   bundle: true,
   format: "cjs",

@@ -382,5 +382,6 @@
   },
   "scripts": {
     "package": "vsce package --no-dependencies"
-  }
+  },
+  "icon": "dist/icon.png"
 }

@@ -21,3 +21,5 @@ tsconfig.json
 *.tgz
 *.log
 !dist/extension.js
+**/*.base64
+!dist/icon.png
