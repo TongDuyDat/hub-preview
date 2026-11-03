@@ -23,6 +23,7 @@
     "type": "git",
     "url": "git+https://github.com/TongDuyDat/hub-preview.git"
   },
+  "author": "Tong Duy Dat, Trinh Xuan Hung",
   "license": "MIT",
   "main": "bin/mcp-server.cjs",
   "bin": {
