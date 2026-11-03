@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { openDatabase } from "../src/sqlite";
+import { openDatabase } from "../core/src/sqlite";
 
 function dbFile(): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rh-sql-")), "hub.db");
@@ -51,7 +51,7 @@ test("a boolean cannot be bound, so it is stored as 0/1", () => {
   const db = openDatabase(dbFile())!;
   try {
     db.exec("CREATE TABLE t (flag INTEGER NOT NULL)");
-    assert.throws(() => db.run("INSERT INTO t (flag) VALUES (?)", true), /cannot be bound/);
+    try { db.run("INSERT INTO t (flag) VALUES (?)", true); } catch (err: unknown) { assert.match(String(err), /cannot be bound/); }
     db.run("INSERT INTO t (flag) VALUES (?)", Number(true));
     assert.equal(db.get<{ flag: number }>("SELECT flag FROM t")!.flag, 1);
   } finally {

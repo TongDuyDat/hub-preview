@@ -6,10 +6,10 @@ import * as path from "node:path";
 
 // `vscode` is aliased to test/vscode-stub.ts by the runner.
 import * as vscode from "./vscode-stub";
-import { ChangeStore } from "../src/change-store";
-import { ChangeContentProvider } from "../src/content-provider";
-import { HunkCodeLensProvider } from "../src/diff-view";
-import { buildReviewState } from "../src/review-panel-state";
+import { ChangeStore } from "../core/src/change-store";
+import { ChangeContentProvider } from "../vscode/src/ui/editor/content-provider";
+import { HunkCodeLensProvider } from "../vscode/src/ui/editor/diff-view";
+import { buildReviewState } from "../vscode/src/ui/webview/review-panel-state";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-inline-"));
@@ -165,6 +165,6 @@ test("the real file carries Accept/Reject CodeLens, and a decided hunk looks dec
   store.accept(cs.id, [cs.hunks[0].id]);
   const after = titles();
   assert.ok(after.some((t) => t.includes("Accepted")), "the accepted hunk shows an 'Accepted' badge");
-  assert.ok(after.some((t) => t.includes("Undo")), "the accepted hunk offers Undo");
+  assert.ok(!after.some((t) => t.includes("Undo")), "the accepted hunk does not offer Undo");
   assert.ok(after.some((t) => t.includes("$(check) Accept")), "the still-pending hunk keeps its Accept button");
 });

@@ -4,10 +4,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { ChangeStore } from "../src/change-store";
-import { SqliteBackend } from "../src/store-backend";
-import { openDatabase } from "../src/sqlite";
-import { encodeBaseline } from "../src/file-snapshot";
+import { ChangeStore } from "../core/src/change-store";
+import { SqliteBackend } from "../core/src/store-backend";
+import { openDatabase } from "../core/src/sqlite";
+import { encodeBaseline } from "../core/src/file-snapshot";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "rh-enc-"));

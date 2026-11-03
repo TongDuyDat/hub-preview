@@ -4,9 +4,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "./vscode-stub";
-import { ChangeStore } from "../src/change-store";
-import { HunkCodeLensProvider } from "../src/diff-view";
-import { buildStagedText } from "../src/staged-content";
+import { ChangeStore } from "../core/src/change-store";
+import { HunkCodeLensProvider } from "../vscode/src/ui/editor/diff-view";
+import { buildStagedText } from "../vscode/src/ui/editor/staged-content";
 
 function storeFor(OLD: string, NEW: string): { ws: string; store: ChangeStore; changeId: string } {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), "rh-staged-lens-"));
@@ -46,11 +46,11 @@ test("a decided hunk keeps its badge at the merged line", () => {
 
   const lenses = provider.provideCodeLenses(doc(path.join(ws, "a.txt"), stagedText.split("\n").length));
 
-  assert.equal(lenses.length, 6, "3 lenses for the accepted hunk + 3 for the pending one");
+  assert.equal(lenses.length, 4, "1 lens for the accepted hunk + 3 for the pending one");
   assert.equal(lenses[0].range.startLine, 0, "the accepted block starts the merged view");
   assert.equal(lenses[0].command?.title, "$(check) Accepted");
-  assert.equal(lenses[3].range.startLine, 2, "the second hunk's red block is on merged line 2");
-  assert.equal(lenses[3].command?.title, "$(check) Accept");
+  assert.equal(lenses[1].range.startLine, 2, "the second hunk's red block is on merged line 2");
+  assert.equal(lenses[1].command?.title, "$(check) Accept");
 });
 
 test("an unstaged file keeps the disk-frame anchors and the plain pending label", () => {
