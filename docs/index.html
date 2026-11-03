@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review Hub - Safe, Hunk-by-Hunk Review for AI Code Changes</title>
   <meta name="description" content="Always see what AI coding agents changed in your project, and accept or reject individual hunks. Works with Claude Code, Cursor, Cline, Roo Code via MCP.">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 3v12a3 3 0 0 0 3 3h3'/><circle cx='6' cy='18' r='3'/><circle cx='18' cy='6' r='3'/><path d='M15 6h-3'/><path d='M9 15l3-3'/></svg>">
+  <link rel="icon" type="image/svg+xml" href="assets/review-hub.svg">
   <style>
     :root {
       --bg: #0b0f19;
@@ -70,14 +70,12 @@
       text-decoration: none;
     }
     .brand-icon {
-      width: 32px;
-      height: 32px;
-      background: linear-gradient(135deg, var(--primary), var(--accent));
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+      width: 40px;
+      height: 40px;
+      display: block;
+      flex-shrink: 0;
+      object-fit: contain;
+      border-radius: 10px;
     }
     .nav-links a {
       color: var(--text-muted);
@@ -328,15 +326,7 @@
   <div class="container">
     <header>
       <a href="#" class="brand">
-        <div class="brand-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 3v12a3 3 0 0 0 3 3h3"/>
-            <circle cx="6" cy="18" r="3" fill="white"/>
-            <circle cx="18" cy="6" r="3" fill="white"/>
-            <path d="M15 6h-3"/>
-            <path d="M9 15l3-3"/>
-          </svg>
-        </div>
+        <img class="brand-icon" src="assets/review-hub.svg" width="40" height="40" alt="">
         Review Hub
       </a>
       <nav class="nav-links">
