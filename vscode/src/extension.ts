@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Logger } from "./logger";
+import { startAgentAutoRegistration } from "./agents/auto-register";
 import { HubServer } from "../../core/src/hub-server";
 import { registry, pidAlive, defaultBaseDir, type HubEntry } from "../../core/src/registry";
 import { ChangeContentProvider, reviewChangeId } from "./ui/editor/content-provider";
@@ -69,6 +70,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return;
   }
   const logger = new Logger("Review Hub");
+  context.subscriptions.push(startAgentAutoRegistration(context, logger));
   const baseDir = defaultBaseDir();
 
   const hub = new HubServer({

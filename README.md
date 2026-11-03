@@ -186,7 +186,17 @@ hub-preview/
 
 ## 7. Hướng dẫn phát triển (Development & Build)
 
-### Cài đặt dependencies:
+### Tự thêm MCP cho agent trong VS Code
+
+Mở **Settings → Extensions → Review Hub** và bật **Auto Register MCP**. Extension tự phát hiện Claude Code, Codex, Cursor, Windsurf, OpenCode, Cline, Roo Code, Gemini CLI và Antigravity qua cấu hình, chương trình trong PATH hoặc extension đã cài. Các checkbox **Agents** cho phép bỏ chọn từng agent.
+
+Extension quét khi khởi động, mỗi phút và khi danh sách extension thay đổi. Có thể chạy **Review Hub: Scan and Register Detected Agents** để quét ngay và xem kết quả trong **Output → Review Hub**. Sau khi được thêm, reconnect MCP trong agent để nạp cấu hình; Review Hub không tự tắt hoặc khởi động lại agent.
+
+Cấu hình chỉ được thêm khi chưa có mục `review-hub`; các server MCP khác, comment và tùy chỉnh hiện có được giữ nguyên. Trước khi sửa file đã tồn tại, extension lưu bản sao `<tên-file>.review-hub.bak`. File sai định dạng được giữ nguyên và báo lỗi riêng, không cản việc thiết lập các agent khác. Bỏ tích setting dừng tự đăng ký và giữ cấu hình đã thêm.
+
+Trong WSL/SSH/Dev Container, extension chỉ quét và cấu hình agent trên **host đang chạy extension**, để agent kết nối đúng Review Hub. Cấu hình Cline/Roo theo VS Code profile đang mở.
+
+## Cài đặt dependencies:
 ```bash
 npm install
 ```

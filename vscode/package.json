@@ -24,7 +24,8 @@
     "commands": [
       {
         "command": "review-hub.setCheckpoint",
-        "title": "Review Hub: Set Checkpoint (accept current state)"
+        "title": "Review Hub: Set Checkpoint (accept current state)",
+        "icon": "$(bookmark)"
       },
       {
         "command": "review-hub.clearCheckpoint",
@@ -55,11 +56,13 @@
       },
       {
         "command": "review-hub.acceptAll",
-        "title": "Review Hub: Accept All Changes"
+        "title": "Review Hub: Accept All Changes",
+        "icon": "$(check-all)"
       },
       {
         "command": "review-hub.rejectAll",
-        "title": "Review Hub: Reject All Changes"
+        "title": "Review Hub: Reject All Changes",
+        "icon": "$(discard)"
       },
       {
         "command": "review-hub.undoFile",
@@ -126,6 +129,11 @@
         "command": "review-hub.nextHunk",
         "title": "Review Hub: Next Pending Change",
         "icon": "$(arrow-down)"
+      },
+      {
+        "command": "review-hub.scanAgents",
+        "title": "Review Hub: Scan and Register Detected Agents",
+        "icon": "$(search)"
       }
     ],
     "viewsContainers": {
@@ -151,32 +159,37 @@
         {
           "command": "review-hub.setCheckpoint",
           "when": "view == review-hub.changes",
-          "group": "navigation@1"
+          "group": "checkpoint@1"
         },
         {
           "command": "review-hub.acceptAll",
           "when": "view == review-hub.changes",
-          "group": "navigation@2"
+          "group": "review@1"
         },
         {
           "command": "review-hub.rejectAll",
           "when": "view == review-hub.changes",
-          "group": "navigation@3"
+          "group": "review@2"
         },
         {
           "command": "review-hub.refresh",
           "when": "view == review-hub.changes",
-          "group": "navigation@4"
+          "group": "navigation@1"
         },
         {
           "command": "review-hub.copyMcpConfig",
           "when": "view == review-hub.changes",
-          "group": "navigation@5"
+          "group": "setup@1"
         },
         {
           "command": "review-hub.copyAgentRules",
           "when": "view == review-hub.changes",
-          "group": "navigation@6"
+          "group": "setup@2"
+        },
+        {
+          "command": "review-hub.scanAgents",
+          "when": "view == review-hub.changes",
+          "group": "setup@3"
         }
       ],
       "explorer/context": [
@@ -270,6 +283,66 @@
           "type": "number",
           "default": 5000,
           "description": "Hard cap on how many files a checkpoint snapshot will read. Keeps activation cheap on very large repositories."
+        },
+        "review-hub.autoRegisterMcp": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "markdownDescription": "Automatically detect supported AI agents on this machine (or the current remote host) and add Review Hub MCP to their user configuration. Scans at startup, every minute and when installed extensions change. Existing MCP entries are preserved. Turning this off stops registration and keeps configurations already added."
+        },
+        "review-hub.agents.claudeCode": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **Claude Code** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
+        },
+        "review-hub.agents.codex": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **Codex** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
+        },
+        "review-hub.agents.cursor": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **Cursor** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
+        },
+        "review-hub.agents.windsurf": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **Windsurf** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
+        },
+        "review-hub.agents.opencode": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **OpenCode** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
+        },
+        "review-hub.agents.cline": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **Cline** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
+        },
+        "review-hub.agents.rooCode": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **Roo Code** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
+        },
+        "review-hub.agents.geminiCli": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **Gemini CLI** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
+        },
+        "review-hub.agents.antigravity": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **Antigravity** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
         }
       }
     }
@@ -278,7 +351,9 @@
     "@review-hub/core": "*",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "diff": "^9.0.0",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "jsonc-parser": "^3.3.1",
+    "smol-toml": "^1.4.2"
   },
   "devDependencies": {
     "@types/diff": "^6.0.0",

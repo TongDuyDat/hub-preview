@@ -309,6 +309,11 @@ const stub = {
       const folders = stub.workspace.workspaceFolders as { uri: { fsPath: string } }[];
       return folders.find((folder) => folder.uri.fsPath === uri.fsPath) ?? folders[0];
     },
+    onDidChangeConfiguration: (cb: (event: never) => unknown) => {
+      const listener = { event: "configuration", cb };
+      stub.__listeners.push(listener);
+      return { dispose: () => { stub.__listeners = stub.__listeners.filter(item => item !== listener); } };
+    },
     onDidChangeWorkspaceFolders: () => ({ dispose: () => {} }),
     registerTextDocumentContentProvider: (scheme: string, provider: unknown) => {
       contentProviders.set(scheme, provider);
