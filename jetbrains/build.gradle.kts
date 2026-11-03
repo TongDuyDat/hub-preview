@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.reviewhub"
-version = providers.gradleProperty("pluginVersion").getOrElse("0.3.1")
+version = providers.gradleProperty("pluginVersion").getOrElse("0.3.3")
 
 repositories {
     mavenCentral()
@@ -32,7 +32,7 @@ intellijPlatform {
     pluginConfiguration {
         id = "com.reviewhub.jetbrains"
         name = "Review Hub"
-        version = "0.3.1"
+        version = providers.gradleProperty("pluginVersion").getOrElse("0.3.3")
         description = """
             Always see what AI coding agents changed in your project, and accept or reject individual hunks.
             Works with Claude Code, opencode, dsh, Cline, Roo via MCP, and catches direct writes too.

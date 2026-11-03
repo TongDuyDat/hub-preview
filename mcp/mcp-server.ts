@@ -205,7 +205,7 @@ interface TypedServer {
   connect(transport: unknown): Promise<void>;
 }
 
-const server = new McpServer({ name: "review-hub", version: "0.3.0" }) as unknown as TypedServer;
+const server = new McpServer({ name: "review-hub", version: "0.3.3" }) as unknown as TypedServer;
 
 function ok(data: unknown): ToolResult {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
