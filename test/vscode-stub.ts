@@ -192,7 +192,7 @@ const stub = {
       return stub.__visibleEditors;
     },
     showTextDocument: async (doc: any, options: any = {}) => {
-      const editor = { document: doc, options, decorations: [] as any[],
+      const editor = { document: doc, options, viewColumn: options.viewColumn ?? 1, decorations: [] as any[],
         selection: { active: { line: options.selection?.startLine ?? 0 } },
         revealRange(range: unknown) { (editor as any).revealed = range; },
         setDecorations(type: unknown, ranges: unknown[]) { editor.decorations.push({ type, ranges }); },

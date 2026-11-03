@@ -3,14 +3,15 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as vscode from "./vscode-stub";
+import vscode = require("./vscode-stub");
 import { ChangeStore } from "../core/src/change-store";
 import { ChangeContentProvider, reviewChangeId } from "../vscode/src/ui/editor/content-provider";
 import { DiffView, HunkCodeLensProvider } from "../vscode/src/ui/editor/diff-view";
 import { ChangeDecorator } from "../vscode/src/ui/editor/change-decorator";
-import { buildStagedView } from "../vscode/src/ui/editor/staged-content";
+import { buildStagedText, buildStagedView } from "../vscode/src/ui/editor/staged-content";
 
-function setup() {
+function setup(mcpOnly = true) {
+  Object.assign(vscode, { __activeEditor: undefined });
   vscode.__visibleEditors.length = 0;
   vscode.__shownEditors.length = 0;
   vscode.__textDocuments.length = 0;
@@ -19,7 +20,7 @@ function setup() {
   const pad = "context\n".repeat(10);
   const old = "old\n" + pad + "remove\n" + pad + "end\n";
   fs.writeFileSync(file, old);
-  const store = new ChangeStore({ baseDir: fs.mkdtempSync(path.join(os.tmpdir(), "rh-native-store-")), mcpOnly: true });
+  const store = new ChangeStore({ baseDir: fs.mkdtempSync(path.join(os.tmpdir(), "rh-native-store-")), mcpOnly });
   const cs = store.propose(ws, "example.py", "new\nextra\n" + pad + pad + "end\ninsert\n");
   const provider = new ChangeContentProvider(store);
   const registration = vscode.workspace.registerTextDocumentContentProvider("review-hub", provider);
@@ -174,4 +175,121 @@ test("accepted deletion closes review without recreating the file", async () => 
     Object.defineProperty(vscode.window, "tabGroups", descriptor);
     registration.dispose(); provider.dispose(); view.dispose(); store.dispose();
   }
+});
+
+function reviewWorkspace(file: string) {
+  const previous = process.env.VSCODE_STUB_WORKSPACE;
+  process.env.VSCODE_STUB_WORKSPACE = JSON.stringify([{ uri: { fsPath: path.dirname(file) }, name: "demo", index: 0 }]);
+  return () => { if (previous === undefined) delete process.env.VSCODE_STUB_WORKSPACE; else process.env.VSCODE_STUB_WORKSPACE = previous; };
+}
+
+test("selecting the original file reveals the pending diff in the same editor group", async () => {
+  const { store, cs, provider, view, old, file, registration } = setup();
+  const restore = reviewWorkspace(file);
+  try {
+    view.start();
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+    const original = await vscode.window.showTextDocument(doc, { viewColumn: 2, preview: false });
+    (original as any).viewColumn = 2;
+    await view.revealPendingForEditor(original as never);
+    const review = vscode.__shownEditors.at(-1)!;
+    assert.equal(reviewChangeId(review.document.uri), cs.id);
+    assert.equal(review.options.viewColumn, 2);
+    assert.equal(review.options.preserveFocus, false);
+    assert.equal(vscode.window.activeTextEditor, review);
+    assert.equal(review.document.getText(), buildStagedText(cs));
+    assert.equal(fs.readFileSync(file, "utf8"), old);
+
+    store.accept(cs.id, [cs.hunks[0].id]);
+    await view.refresh(cs.id);
+    const reopened = await vscode.window.showTextDocument(doc, { viewColumn: 2 });
+    await view.revealPendingForEditor(reopened as never);
+    assert.equal(vscode.__shownEditors.at(-1)!.document.uri.authority, "inline");
+    assert.equal(store.findById(cs.id)!.hunks.filter(h => h.decision === "pending").length, 2);
+    store.reject(cs.id, cs.hunks.slice(1).map(h => h.id));
+    const finished = await vscode.window.showTextDocument(doc, { viewColumn: 2 });
+    await view.revealPendingForEditor(finished as never);
+    assert.equal(vscode.window.activeTextEditor, finished, "finished files open normally");
+  } finally { restore(); view.dispose(); registration.dispose(); provider.dispose(); store.dispose(); }
+});
+
+test("new proposals reveal a review for the active file without taking focus", async () => {
+  const { store, provider, view, file, registration } = setup();
+  const restore = reviewWorkspace(file);
+  try {
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+    const original = await vscode.window.showTextDocument(doc);
+    await view.revealPendingForEditor(original as never, true);
+    assert.equal(vscode.__shownEditors.at(-1)!.document.uri.authority, "inline");
+    assert.equal(vscode.__shownEditors.at(-1)!.options.preserveFocus, true);
+    assert.equal(vscode.window.activeTextEditor, original);
+  } finally { restore(); view.dispose(); registration.dispose(); provider.dispose(); store.dispose(); }
+});
+
+test("pending-review routing leaves unrelated, dirty, binary and non-MCP files alone", async () => {
+  const { store, cs, provider, view, file, registration } = setup(false);
+  const restore = reviewWorkspace(file);
+  try {
+    const other = path.join(path.dirname(file), "other.py");
+    fs.writeFileSync(other, "unrelated\n");
+    const unrelated = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(other)));
+    await view.revealPendingForEditor(unrelated as never);
+    assert.equal(vscode.window.activeTextEditor, unrelated);
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+    const original = await vscode.window.showTextDocument(doc);
+    Object.defineProperty(doc, "isDirty", { configurable: true, value: true });
+    await view.revealPendingForEditor(original as never);
+    assert.equal(vscode.window.activeTextEditor, original);
+    Object.defineProperty(doc, "isDirty", { configurable: true, value: false });
+    fs.writeFileSync(file, Buffer.from([0, 1, 2, 3]));
+    assert.equal((await store.observe(path.dirname(file), path.basename(file)))!.binary, true);
+    await view.revealPendingForEditor(original as never);
+    assert.equal(vscode.window.activeTextEditor, original);
+    fs.writeFileSync(file, "direct write\n");
+    assert.equal((await store.observe(path.dirname(file), path.basename(file)))!.origin, "fs");
+    await view.revealPendingForEditor(original as never);
+    assert.equal(vscode.window.activeTextEditor, original);
+  } finally { restore(); view.dispose(); registration.dispose(); provider.dispose(); store.dispose(); }
+});
+
+for (const action of ["switch", "type", "resolve", "dispose"] as const) {
+  test("loading a pending review does not steal focus after: " + action, async () => {
+    const { store, cs, provider, view, file, registration } = setup();
+    const restore = reviewWorkspace(file);
+    const open = vscode.workspace.openTextDocument;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    try {
+      const doc = await open(vscode.Uri.file(file));
+      const original = await vscode.window.showTextDocument(doc);
+      vscode.workspace.openTextDocument = async (uri: any) => {
+        if (uri.scheme === "review-hub") await gate;
+        return open(uri);
+      };
+      const before = vscode.__shownEditors.length;
+      const redirect = view.revealPendingForEditor(original as never);
+      if (action === "switch") Object.assign(vscode, { __activeEditor: undefined });
+      if (action === "type") Object.defineProperty(doc, "isDirty", { configurable: true, value: true });
+      if (action === "resolve") store.reject(cs.id);
+      if (action === "dispose") view.dispose();
+      release();
+      await redirect;
+      assert.equal(vscode.__shownEditors.length, before);
+    } finally { release(); vscode.workspace.openTextDocument = open; restore(); view.dispose(); registration.dispose(); provider.dispose(); store.dispose(); }
+  });
+}
+
+test("routing starts once and removes its active-editor listener on disposal", async () => {
+  const { store, provider, view, file, registration } = setup();
+  const restore = reviewWorkspace(file);
+  const before = vscode.__editorListeners.length;
+  try {
+    view.start(); view.start();
+    assert.equal(vscode.__editorListeners.length, before + 1);
+    view.dispose();
+    assert.equal(vscode.__editorListeners.length, before);
+    const original = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(file)));
+    await view.revealPendingForEditor(original as never);
+    assert.equal(vscode.window.activeTextEditor, original);
+  } finally { restore(); view.dispose(); registration.dispose(); provider.dispose(); store.dispose(); }
 });

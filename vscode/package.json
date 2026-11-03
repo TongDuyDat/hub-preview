@@ -2,7 +2,7 @@
   "name": "review-hub-vscode",
   "displayName": "Review Hub",
   "description": "Review AI changes proposed through MCP and accept or reject individual hunks. Works with Claude Code, opencode, dsh, Cline and Roo.",
-  "version": "0.3.0",
+  "version": "0.3.4",
   "publisher": "review-hub",
   "license": "MIT",
   "preview": true,
@@ -343,6 +343,18 @@
           "default": true,
           "scope": "machine",
           "markdownDescription": "Include **Antigravity** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
+        },
+        "review-hub.agents.deepseekHarness": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **DeepSeek Harness** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
+        },
+        "review-hub.agents.ohMyPi": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Include **Oh My Pi** when **Review Hub: Auto Register MCP** is enabled. Only detected installations are configured. Existing entries are kept when unchecked."
         }
       }
     }
@@ -353,7 +365,8 @@
     "diff": "^9.0.0",
     "zod": "^3.25.76",
     "jsonc-parser": "^3.3.1",
-    "smol-toml": "^1.4.2"
+    "smol-toml": "^1.4.2",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/diff": "^6.0.0",

@@ -1,6 +1,6 @@
 {
   "name": "review-hub-mcp",
-  "version": "0.3.0",
+  "version": "0.3.4",
   "description": "Model Context Protocol (MCP) server for Review Hub - Hunk-by-hunk AI code change review for VS Code and JetBrains IDEs",
   "keywords": [
     "mcp",
@@ -21,7 +21,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TongDuyDat/hub-preview.git"
+    "url": "git+https://github.com/TongDuyDat/hub-preview.git",
+    "directory": "mcp"
   },
   "license": "MIT",
   "author": "Hung, Tong Duy Dat",
@@ -31,10 +32,17 @@
   },
   "files": [
     "bin/mcp-server.cjs",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepack": "npm --prefix .. run build",
+    "prepublishOnly": "npm --prefix .. run typecheck && npm --prefix .. test"
   }
 }
-

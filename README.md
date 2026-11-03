@@ -188,13 +188,15 @@ hub-preview/
 
 ### Tự thêm MCP cho agent trong VS Code
 
-Mở **Settings → Extensions → Review Hub** và bật **Auto Register MCP**. Extension tự phát hiện Claude Code, Codex, Cursor, Windsurf, OpenCode, Cline, Roo Code, Gemini CLI và Antigravity qua cấu hình, chương trình trong PATH hoặc extension đã cài. Các checkbox **Agents** cho phép bỏ chọn từng agent.
+Mở **Settings → Extensions → Review Hub** và bật **Auto Register MCP**. Extension tự phát hiện Claude Code, Codex, Cursor, Windsurf, OpenCode, Cline, Roo Code, Gemini CLI, Antigravity, DeepSeek Harness và Oh My Pi qua cấu hình, chương trình trong PATH hoặc extension đã cài. Các checkbox **Agents** cho phép bỏ chọn từng agent.
 
 Extension quét khi khởi động, mỗi phút và khi danh sách extension thay đổi. Có thể chạy **Review Hub: Scan and Register Detected Agents** để quét ngay và xem kết quả trong **Output → Review Hub**. Sau khi được thêm, reconnect MCP trong agent để nạp cấu hình; Review Hub không tự tắt hoặc khởi động lại agent.
 
 Cấu hình chỉ được thêm khi chưa có mục `review-hub`; các server MCP khác, comment và tùy chỉnh hiện có được giữ nguyên. Trước khi sửa file đã tồn tại, extension lưu bản sao `<tên-file>.review-hub.bak`. File sai định dạng được giữ nguyên và báo lỗi riêng, không cản việc thiết lập các agent khác. Bỏ tích setting dừng tự đăng ký và giữ cấu hình đã thêm.
 
 Trong WSL/SSH/Dev Container, extension chỉ quét và cấu hình agent trên **host đang chạy extension**, để agent kết nối đúng Review Hub. Cấu hình Cline/Roo theo VS Code profile đang mở.
+
+DeepSeek Harness (`dsh`) dùng `$DSH_HOME/cordis.patch.yml` (mặc định `~/.dsh/cordis.patch.yml`), thêm plugin MCP theo định dạng Cordis YAML. Oh My Pi (`omp`) dùng `~/.omp/agent/mcp.json`, tôn trọng `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR` và profile `OMP_PROFILE`/`PI_PROFILE` trong môi trường extension host. Đóng/mở lại phiên agent hoặc reload cấu hình MCP để nhận server mới.
 
 ## Cài đặt dependencies:
 ```bash
@@ -250,3 +252,7 @@ cd jetbrains && ./gradlew buildPlugin
   Bảo đảm project bạn đang mở trùng khớp với workspace mà AI Agent đang thao tác. Bấm `Review Hub: Show Changes` để làm mới danh sách.
 - **Làm sạch phiên làm việc cũ:**
   Chạy lệnh `Review Hub: Clear Checkpoint` hoặc xóa file `~/.review-hub/hub.json`.
+
+## Tải bản phát hành và publish
+
+Tải VSIX công khai tại [GitHub Releases](https://github.com/TongDuyDat/hub-preview/releases/latest). Xem [PUBLISHING.md](PUBLISHING.md) để đăng ký/publish npm, tạo GitHub Release và cấu hình GitHub Pages.

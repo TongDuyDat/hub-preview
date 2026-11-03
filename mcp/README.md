@@ -10,6 +10,10 @@ Nothing is written directly to disk until you inspect and accept each hunk.
 
 ---
 
+## Requirements
+
+Node.js **22.13.0 or newer**. Install the VS Code extension from [GitHub Releases](https://github.com/TongDuyDat/hub-preview/releases/latest), or use the JetBrains plugin.
+
 ## Quick Start
 
 You do not need to install this package manually. Run it directly with `npx`:
@@ -81,7 +85,7 @@ Add an MCP stdio server with:
 ## Prerequisites
 
 To review and accept changes proposed by the AI:
-1. Have your project open in **VS Code** (with the [Review Hub extension](https://marketplace.visualstudio.com)) or **JetBrains IDE** (with the Review Hub plugin).
+1. Have your project open in **VS Code** (with the [Review Hub extension from GitHub Releases](https://github.com/TongDuyDat/hub-preview/releases/latest)) or **JetBrains IDE** (with the Review Hub plugin).
 2. The IDE automatically hosts the Review Hub server and publishes connection details to `~/.review-hub/hub.json`.
 3. `review-hub-mcp` automatically discovers the running hub and forwards all agent edit proposals to it.
 

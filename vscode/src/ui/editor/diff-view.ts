@@ -101,22 +101,7 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
   }
 
   private changeForFile(fsPath: string): ReturnType<ChangeStore["findChangeByPath"]> {
-    const isWin = process.platform === "win32";
-    const normFs = fsPath.replace(/\\/g, "/");
-    for (const ws of vscode.workspace.workspaceFolders ?? []) {
-      const root = ws.uri.fsPath.replace(/[\\/]+$/, "").replace(/\\/g, "/");
-      const compFs = isWin ? normFs.toLowerCase() : normFs;
-      const compRoot = isWin ? root.toLowerCase() : root;
-      if (!compFs.startsWith(compRoot + "/")) {
-        continue;
-      }
-      const rel = normFs.slice(root.length + 1);
-      const cs = this.store.findChangeByPath(ws.uri.fsPath, rel) ?? this.store.findChangeByPath(root, rel);
-      if (cs) {
-        return cs;
-      }
-    }
-    return undefined;
+    return changeForFile(this.store, fsPath);
   }
 
   private lensesFor(
@@ -215,6 +200,9 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
  */
 export class DiffView implements vscode.Disposable {
   private disposables: vscode.Disposable[] = [];
+  private started = false;
+  private disposed = false;
+  private redirects = new Map<vscode.TextEditor, Promise<void>>();
 
   constructor(
     private store: ChangeStore,
@@ -223,15 +211,42 @@ export class DiffView implements vscode.Disposable {
     private onDidChange: () => void,
   ) {}
 
+  /** Prefer the pending review when Explorer, Quick Open, or an original tab is selected. */
+  start(): void {
+    if (this.started || this.disposed) return;
+    this.started = true;
+    const reveal = (editor?: vscode.TextEditor) => {
+      // Keep opening the original usable if a virtual document cannot be loaded.
+      void this.revealPendingForEditor(editor).catch(() => {});
+    };
+    this.disposables.push(vscode.window.onDidChangeActiveTextEditor(reveal));
+    void this.revealPendingForEditor(undefined, true).catch(() => {});
+  }
+
+  async revealPendingForEditor(editor = vscode.window.activeTextEditor, preserveFocus = false): Promise<void> {
+    if (this.disposed || !editor || editor.document.uri.scheme !== "file" || editor.document.isDirty) return;
+    const cs = changeForFile(this.store, editor.document.uri.fsPath);
+    if (!hasPendingReview(cs)) return;
+    const existing = this.redirects.get(editor);
+    if (existing) return existing;
+    const task = this.openInline(cs!.id, undefined, preserveFocus, editor).finally(() => this.redirects.delete(editor));
+    this.redirects.set(editor, task);
+    return task;
+  }
+
   /** Open the merged red/green review in the native editor, in the current group. */
-  async openInline(changeId: string, targetHunkId?: string, preserveFocus = false): Promise<void> {
+  async openInline(changeId: string, targetHunkId?: string, preserveFocus = false, sourceEditor?: vscode.TextEditor): Promise<void> {
     const cs = this.store.findById(changeId);
     if (!cs) return;
     const doc = await vscode.workspace.openTextDocument(this.provider.inlineUri(changeId));
+    // Opening a virtual document is asynchronous. Do not steal focus if the user has
+    // moved elsewhere, started typing, or resolved the last block in the meantime.
+    if (sourceEditor && (this.disposed || vscode.window.activeTextEditor !== sourceEditor ||
+      sourceEditor.document.isDirty || sourceEditor.document.isClosed || !hasPendingReview(this.store.findById(changeId)))) return;
     const target = targetHunkId ? buildStagedView(cs)?.hunks.find((h) => h.id === targetHunkId) : undefined;
     const line = target ? clamp(target.anchor, 0, Math.max(0, doc.lineCount - 1)) : undefined;
     await vscode.window.showTextDocument(doc, {
-      viewColumn: vscode.ViewColumn.Active,
+      viewColumn: sourceEditor?.viewColumn ?? vscode.ViewColumn.Active,
       preview: false,
       preserveFocus,
       ...(line === undefined ? {} : { selection: new vscode.Range(line, 0, line, 0) }),
@@ -348,10 +363,35 @@ export class DiffView implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const d of this.disposables) {
       d.dispose();
     }
   }
+}
+
+function hasPendingReview(cs: ReturnType<ChangeStore["findById"]>): boolean {
+  return !!cs && cs.origin === "mcp" && !cs.binary && cs.status !== "resolved" &&
+    cs.hunks.some(h => h.decision === "pending");
+}
+
+function changeForFile(store: ChangeStore, fsPath: string): ReturnType<ChangeStore["findChangeByPath"]> {
+    const isWin = process.platform === "win32";
+    const normFs = fsPath.replace(/\\/g, "/");
+    for (const ws of vscode.workspace.workspaceFolders ?? []) {
+      const root = ws.uri.fsPath.replace(/[\\/]+$/, "").replace(/\\/g, "/");
+      const compFs = isWin ? normFs.toLowerCase() : normFs;
+      const compRoot = isWin ? root.toLowerCase() : root;
+      if (!compFs.startsWith(compRoot + "/")) {
+        continue;
+      }
+      const rel = normFs.slice(root.length + 1);
+      const cs = store.findChangeByPath(ws.uri.fsPath, rel) ?? store.findChangeByPath(root, rel);
+      if (cs) {
+        return cs;
+      }
+    }
+    return undefined;
 }
 
 function clamp(n: number, lo: number, hi: number): number {

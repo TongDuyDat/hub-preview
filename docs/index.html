@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Review Hub - Safe, Hunk-by-Hunk Review for AI Code Changes</title>
+  <meta name="description" content="Always see what AI coding agents changed in your project, and accept or reject individual hunks. Works with Claude Code, Cursor, Cline, Roo Code via MCP.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 3v12a3 3 0 0 0 3 3h3'/><circle cx='6' cy='18' r='3'/><circle cx='18' cy='6' r='3'/><path d='M15 6h-3'/><path d='M9 15l3-3'/></svg>">
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: rgba(22, 30, 49, 0.7);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --accent: #38bdf8;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --success: #10b981;
+      --code-bg: #070a12;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+
+    /* Background glow */
+    .glow {
+      position: absolute;
+      top: -150px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 700px;
+      height: 400px;
+      background: radial-gradient(ellipse at center, rgba(99, 102, 241, 0.25) 0%, rgba(56, 189, 248, 0.1) 40%, transparent 70%);
+      filter: blur(60px);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .container {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    header {
+      padding: 32px 0 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: #fff;
+      text-decoration: none;
+    }
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      margin-left: 20px;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: #fff; }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 70px 0 50px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 13px;
+      color: #a5b4fc;
+      margin-bottom: 24px;
+      font-weight: 500;
+    }
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      background: #4ade80;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #4ade80;
+    }
+    h1 {
+      font-size: 48px;
+      font-weight: 800;
+      letter-spacing: -1.2px;
+      margin-bottom: 20px;
+      background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 19px;
+      color: var(--text-muted);
+      max-width: 680px;
+      margin: 0 auto 36px;
+    }
+
+    /* Download Buttons Grid */
+    .download-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-bottom: 60px;
+    }
+    .download-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      text-align: left;
+      backdrop-filter: blur(12px);
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .download-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(99, 102, 241, 0.5);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .card-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+    }
+    .card-title h3 {
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .card-title span {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .card-desc {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      flex-grow: 1;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), #4338ca);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, var(--primary-hover), #3730a3);
+      box-shadow: 0 6px 18px rgba(99, 102, 241, 0.5);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: #e2e8f0;
+      border: 1px solid var(--card-border);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+    }
+
+    /* Command Banner */
+    .terminal-box {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 600px;
+      margin: 0 auto 70px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 14px;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+    }
+    .command-text {
+      color: #38bdf8;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .command-text span { color: var(--text-muted); }
+    .copy-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--card-border);
+      color: #e2e8f0;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .copy-btn:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+
+    /* Guides Section */
+    .section-title {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+    .section-title h2 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.6px;
+      margin-bottom: 10px;
+    }
+    .section-title p {
+      font-size: 15px;
+      color: var(--text-muted);
+    }
+
+    .install-steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      margin-bottom: 70px;
+    }
+    .step-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 24px;
+    }
+    .step-number {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    .step-card h4 {
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+    .step-card ol {
+      padding-left: 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    .step-card li { margin-bottom: 8px; }
+    .step-card code {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #f1f5f9;
+      font-size: 13px;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--card-border);
+      padding: 36px 0;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 640px) {
+      h1 { font-size: 34px; }
+      .hero p { font-size: 16px; }
+      .download-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <div class="container">
+    <header>
+      <a href="#" class="brand">
+        <div class="brand-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 3v12a3 3 0 0 0 3 3h3"/>
+            <circle cx="6" cy="18" r="3" fill="white"/>
+            <circle cx="18" cy="6" r="3" fill="white"/>
+            <path d="M15 6h-3"/>
+            <path d="M9 15l3-3"/>
+          </svg>
+        </div>
+        Review Hub
+      </a>
+      <nav class="nav-links">
+        <a href="https://github.com/TongDuyDat/hub-preview" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://www.npmjs.com/package/review-hub-mcp" target="_blank" rel="noopener">npm</a>
+        <a href="#install">Installation</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="badge">
+          <span class="badge-dot"></span>
+          <span id="release-badge-text">Latest Release</span>
+        </div>
+        <h1>Human Review for AI Code Changes</h1>
+        <p>Always inspect what AI coding agents (Claude Code, Cursor, Cline, Roo Code) propose in your project, and accept or reject individual hunks before anything touches disk.</p>
+
+        <!-- Download Cards -->
+        <div class="download-grid">
+          <!-- VS Code -->
+          <div class="download-card">
+            <div>
+              <div class="card-header">
+                <div class="card-icon" style="background: rgba(0, 122, 204, 0.1); border-color: rgba(0, 122, 204, 0.3);">
+                  <svg width="26" height="26" viewBox="0 0 256 256" fill="none">
+                    <path d="M180.7 254.3a17.2 17.2 0 0 0 16-2.8l51.5-40a17.2 17.2 0 0 0 6.8-13.6V58.1a17.2 17.2 0 0 0-6.8-13.6l-51.5-40a17.2 17.2 0 0 0-21.7 2.4l-95.8 87.7L39.8 63.8a12.5 12.5 0 0 0-16.7 1.4L4.8 81.3a12.5 12.5 0 0 0 0 17.4l41.6 38.6L4.8 156a12.5 12.5 0 0 0 0 17.4l18.3 16.1a12.5 12.5 0 0 0 16.7 1.4l39.3-30.8 95.8 87.7c4 3.7 9.5 5.7 15.1 5.7l10.7-.2z" fill="#0065A9"/>
+                    <path d="M196.7 251.5a17.2 17.2 0 0 0 6.8-13.6V58.1a17.2 17.2 0 0 0-6.8-13.6l-51.5-40a17.2 17.2 0 0 0-21.7 2.4l-95.8 87.7 51.7 41.5 67.8-62.1 41.3 32.7v79.4l-41.3 32.7-67.8-62.1-51.7 41.5 95.8 87.7a17.2 17.2 0 0 0 21.7 2.4l51.5-40.2z" fill="#007ACC"/>
+                    <path d="M196.7 44.5L145.2 4.5a17.2 17.2 0 0 0-21.7 2.4l-95.8 87.7 51.7 41.5 67.8-62.1 41.3 32.7V44.5z" fill="#0065A9"/>
+                    <path d="M145.2 251.5l51.5-40a17.2 17.2 0 0 0 6.8-13.6v-62.2l-41.3 32.7-67.8-62.1-51.7 41.5 95.8 87.7a17.2 17.2 0 0 0 21.7 2.4l-15 13.6z" fill="#007ACC"/>
+                  </svg>
+                </div>
+                <div class="card-title">
+                  <h3>VS Code Extension</h3>
+                  <span>review-hub-vscode</span>
+                </div>
+              </div>
+              <p class="card-desc">Staged in-editor inline diff, CodeLens buttons, real-time file watcher, and dedicated Review Tab.</p>
+            </div>
+            <a id="vscode-download-btn" href="https://github.com/TongDuyDat/hub-preview/releases/latest" class="btn btn-primary">
+              Download for VS Code
+            </a>
+          </div>
+
+          <!-- JetBrains -->
+          <div class="download-card">
+            <div>
+              <div class="card-header">
+                <div class="card-icon" style="background: rgba(175, 38, 255, 0.1); border-color: rgba(175, 38, 255, 0.3);">
+                  <svg width="26" height="26" viewBox="0 0 100 100" fill="none">
+                    <defs>
+                      <linearGradient id="jb-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#FF318C" />
+                        <stop offset="50%" stop-color="#AF26FF" />
+                        <stop offset="100%" stop-color="#00A2FF" />
+                      </linearGradient>
+                    </defs>
+                    <rect width="100" height="100" rx="22" fill="url(#jb-grad)"/>
+                    <rect x="12" y="12" width="76" height="76" rx="14" fill="#000000"/>
+                    <rect x="22" y="66" width="36" height="9" rx="2" fill="#FFFFFF"/>
+                  </svg>
+                </div>
+                <div class="card-title">
+                  <h3>JetBrains Plugin</h3>
+                  <span>IntelliJ, WebStorm, PyCharm...</span>
+                </div>
+              </div>
+              <p class="card-desc">In-editor range highlighting, inline Accept/Reject gutter bars, Review Hub ToolWindow, and zero config.</p>
+            </div>
+            <a id="jetbrains-download-btn" href="https://github.com/TongDuyDat/hub-preview/releases/tag/v0.3.3" class="btn btn-primary">
+              Download for JetBrains
+            </a>
+          </div>
+
+          <!-- MCP Server -->
+          <div class="download-card">
+            <div>
+              <div class="card-header">
+                <div class="card-icon" style="background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3);">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="4" width="16" height="16" rx="3" fill="rgba(56, 189, 248, 0.15)"/>
+                    <circle cx="9" cy="9" r="1.5" fill="#38bdf8"/>
+                    <circle cx="15" cy="9" r="1.5" fill="#38bdf8"/>
+                    <path d="M8 15h8"/>
+                    <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>
+                  </svg>
+                </div>
+                <div class="card-title">
+                  <h3>MCP Server</h3>
+                  <span>review-hub-mcp</span>
+                </div>
+              </div>
+              <p class="card-desc">Runs with zero installation via npx. Integrates into Claude Code, Cursor, Cline, Roo Code, and Antigravity.</p>
+            </div>
+            <a href="https://www.npmjs.com/package/review-hub-mcp" target="_blank" rel="noopener" class="btn btn-secondary">
+              View on npmjs
+            </a>
+          </div>
+        </div>
+
+        <!-- MCP Command Snippet -->
+        <div class="terminal-box">
+          <div class="command-text">
+            <span>$</span> npx -y review-hub-mcp
+          </div>
+          <button class="copy-btn" onclick="copyCommand('npx -y review-hub-mcp')">Copy</button>
+        </div>
+      </section>
+
+      <!-- How to Install -->
+      <section id="install">
+        <div class="section-title">
+          <h2>How to Install</h2>
+          <p>Easy 1-minute manual installation until official marketplace publication</p>
+        </div>
+
+        <div class="install-steps">
+          <div class="step-card">
+            <div class="step-number">Option A</div>
+            <h4>VS Code Installation</h4>
+            <ol>
+              <li>Download the extension using the <strong>Download for VS Code</strong> button above.</li>
+              <li>Open VS Code and press <code>Ctrl+Shift+X</code> (Extensions view).</li>
+              <li>Click the <code>...</code> (Views and More Actions) menu in the top-right corner.</li>
+              <li>Select <strong>Install from VSIX...</strong> and choose the downloaded file.</li>
+            </ol>
+          </div>
+
+          <div class="step-card">
+            <div class="step-number">Option B</div>
+            <h4>JetBrains IDE Installation</h4>
+            <ol>
+              <li>Download the plugin using the <strong>Download for JetBrains</strong> button above.</li>
+              <li>Open your IDE (IntelliJ, WebStorm, PyCharm, etc.).</li>
+              <li>Open <strong>Settings / Preferences</strong> (<code>Ctrl+Alt+S</code> or <code>Cmd+,</code>).</li>
+              <li>Go to <strong>Plugins</strong>, click the ⚙️ gear icon, and select <strong>Install Plugin from Disk...</strong>.</li>
+            </ol>
+          </div>
+
+          <div class="step-card">
+            <div class="step-number">Option C</div>
+            <h4>Configure Your AI Agent</h4>
+            <ol>
+              <li>Add <code>review-hub</code> to your AI tool MCP config (<code>~/.claude.json</code>, Cline, Roo Code):
+                <br><code>"command": "npx", "args": ["-y", "review-hub-mcp"]</code>
+              </li>
+              <li>Click <strong>Copy AI Agent Rules</strong> in Review Hub to add enforcement rules into <code>CLAUDE.md</code>, <code>.cursorrules</code>, or <code>.clinerules</code>.</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ Section -->
+      <section id="faq" style="margin-bottom: 70px;">
+        <div class="section-title">
+          <h2>Frequently Asked Questions</h2>
+          <p>Everything you need to know about Review Hub</p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+          <div class="step-card">
+            <h4>🔒 Does Review Hub send my code to the cloud?</h4>
+            <p style="color: var(--text-muted); font-size: 14px; margin-top: 8px;">
+              <strong>No, never.</strong> Review Hub runs 100% locally on your machine. All changes, baselines, and diffs are kept in a local SQLite store (<code>~/.review-hub/hub.db</code>). No telemetry, no external server.
+            </p>
+          </div>
+
+          <div class="step-card">
+            <h4>🤖 Which AI coding agents are supported?</h4>
+            <p style="color: var(--text-muted); font-size: 14px; margin-top: 8px;">
+              Works with MCP clients including Claude Code, Codex, Cursor, Cline, Roo Code, Antigravity, Windsurf, DeepSeek Harness and Oh My Pi. The VS Code extension reviews proposals submitted through Review Hub MCP; direct shell writes and Git diffs are not imported.
+            </p>
+          </div>
+
+          <div class="step-card">
+            <h4>⚡ Can I use VS Code and JetBrains together?</h4>
+            <p style="color: var(--text-muted); font-size: 14px; margin-top: 8px;">
+              <strong>Yes!</strong> Review Hub's local hub server coordinates across multiple IDE windows. Changes proposed in one editor update instantly across all open windows.
+            </p>
+          </div>
+
+          <div class="step-card">
+            <h4>🛡️ What if the AI refuses to call MCP?</h4>
+            <p style="color: var(--text-muted); font-size: 14px; margin-top: 8px;">
+              Click <strong>Copy AI Agent Rules</strong> in the Review Hub toolbar and paste the rules into <code>CLAUDE.md</code> or <code>.cursorrules</code>. You can also disable native write tools in Cline / Roo Code settings.
+            </p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer>
+      <p>Review Hub is open source under the <a href="https://github.com/TongDuyDat/hub-preview/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>. Star or contribute on <a href="https://github.com/TongDuyDat/hub-preview" target="_blank" rel="noopener">GitHub</a>.</p>
+    </footer>
+  </div>
+
+  <script>
+    function copyCommand(text) {
+      navigator.clipboard.writeText(text).then(function() {
+        const btn = document.querySelector('.copy-btn');
+        btn.textContent = 'Copied!';
+        btn.style.color = '#4ade80';
+        setTimeout(function() {
+          btn.textContent = 'Copy';
+          btn.style.color = '';
+        }, 2000);
+      });
+    }
+
+    // Auto-fetch latest release assets from GitHub API
+    async function loadLatestRelease() {
+      try {
+        const res = await fetch('https://api.github.com/repos/TongDuyDat/hub-preview/releases/latest');
+        if (!res.ok) return;
+        const data = await res.json();
+        const tag = data.tag_name || 'Latest';
+
+        const badge = document.getElementById('release-badge-text');
+        if (badge) badge.textContent = tag + ' Latest Release';
+
+        if (Array.isArray(data.assets)) {
+          const vsix = data.assets.find(a => a.name.endsWith('.vsix'));
+          const vsCodeBtn = document.getElementById('vscode-download-btn');
+          if (vsix && vsCodeBtn) {
+            vsCodeBtn.href = vsix.browser_download_url;
+            // keep clean button text
+          }
+
+          const jetbrains = data.assets.find(a => a.name.endsWith('.zip') && a.name.includes('jetbrains'));
+          const jetBrainsBtn = document.getElementById('jetbrains-download-btn');
+          if (jetbrains && jetBrainsBtn) {
+            jetBrainsBtn.href = jetbrains.browser_download_url;
+            // keep clean button text
+          }
+        }
+      } catch (err) {
+        console.warn('GitHub API rate limited or offline, using fallback latest link.', err);
+      }
+    }
+    loadLatestRelease();
+
+  </script>
+</body>
+</html>

@@ -5,6 +5,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { parse as parseJsonc } from "jsonc-parser/lib/esm/main.js";
 import { parse as parseToml } from "smol-toml";
+import { parse as parseYaml } from "yaml";
 import {
   detectAgents, addMcpEntry, registerAgent, registerDetectedAgents, SUPPORTED_AGENTS,
   type AgentEnvironment, type DetectedAgent,
@@ -30,7 +31,7 @@ test("detection does not create configs for agents absent from this host", async
 
 test("detects all supported agents from known config directories and active-profile extensions", async () => {
   const context = await setup();
-  for (const directory of [".claude", ".codex", ".cursor", ".codeium/windsurf", ".config/opencode", ".gemini/antigravity"]) await fs.mkdir(path.join(context.homeDir, directory), { recursive: true });
+  for (const directory of [".claude", ".codex", ".cursor", ".codeium/windsurf", ".config/opencode", ".gemini/antigravity", ".dsh", ".omp/agent"]) await fs.mkdir(path.join(context.homeDir, directory), { recursive: true });
   await write(path.join(context.homeDir, ".gemini/settings.json"), "{}");
   context.installedExtensions = ["Saoudrizwan.Claude-Dev", "RooVeterinaryInc.roo-cline"];
   const detected = await detectAgents(context);
@@ -175,4 +176,105 @@ test("a malformed agent config does not prevent registration for another detecte
   const results = await registerDetectedAgents(context, () => true);
   assert.deepEqual(results.map(r => [r.id, r.status]), [["claudeCode", "error"], ["cursor", "registered"]]);
   assert.equal(await fs.readFile(path.join(context.homeDir, ".claude.json"), "utf8"), "invalid-json");
+});
+
+test("detects dsh and omp executables without launching them", async () => {
+  const context = await setup();
+  const bin = path.join(context.homeDir, "bin");
+  const marker = path.join(context.homeDir, "must-not-run");
+  for (const name of ["dsh", "omp"]) {
+    await write(path.join(bin, name), "#!/bin/sh\ntouch " + JSON.stringify(marker));
+    await fs.chmod(path.join(bin, name), 0o755);
+  }
+  context.env.PATH = bin;
+  const detected = await detectAgents(context);
+  assert.deepEqual(detected.map(a => a.id), ["deepseekHarness", "ohMyPi"]);
+  assert.equal(detected[0].configPath, path.join(context.homeDir, ".dsh/cordis.patch.yml"));
+  assert.equal(detected[1].configPath, path.join(context.homeDir, ".omp/agent/mcp.json"));
+  await assert.rejects(fs.stat(marker), { code: "ENOENT" });
+});
+
+test("DeepSeek extension detection and DSH_HOME select the Cordis home patch", async () => {
+  const context = await setup();
+  context.env.DSH_HOME = path.join(context.homeDir, "custom-dsh");
+  context.installedExtensions = ["DeepSeek-Harness.DeepSeek-Harness-VSCode"];
+  const [target] = await detectAgents(context);
+  assert.equal(target.configPath, path.join(context.env.DSH_HOME, "cordis.patch.yml"));
+  assert.equal((await registerAgent(target, "win32")).status, "registered");
+  const entry = parseYaml(await fs.readFile(target.configPath, "utf8"))[0].insert[0];
+  assert.equal(entry.name, "@deepseek-ai/dsh-mcp-client");
+  assert.deepEqual(entry.config, { serverName: "review-hub", transport: "stdio", command: "cmd", args: ["/d", "/c", "npx", "-y", "review-hub-mcp"] });
+  assert.equal((await registerAgent(target, "win32")).status, "already-configured");
+});
+
+test("Cordis setup preserves plugin settings, comments and inert JS expressions", async () => {
+  const context = await setup();
+  await fs.mkdir(path.join(context.homeDir, ".dsh"));
+  const [target] = await detectAgents(context);
+  const original = "# My plugins\r\n- insert:\r\n    - id: weather\r\n      name: '@example/weather'\r\n      disabled: !!js process.platform === 'win32'\r\n      config: { units: metric }\r\n";
+  await write(target.configPath, original);
+  assert.equal((await registerAgent(target, "linux")).status, "registered");
+  const updated = await fs.readFile(target.configPath, "utf8");
+  assert.ok(updated.startsWith(original));
+  assert.ok(!updated.replace(/\r\n/g, "").includes("\n"));
+  assert.equal(await fs.readFile(target.configPath + ".review-hub.bak", "utf8"), original);
+  const rows = parseYaml(updated);
+  assert.equal(rows[1].insert[0].config.serverName, "review-hub");
+});
+
+test("Cordis existing or disabled Review Hub entries are kept and malformed YAML is skipped", async () => {
+  const context = await setup();
+  await fs.mkdir(path.join(context.homeDir, ".dsh"));
+  const [target] = await detectAgents(context);
+  for (const original of [
+    "- id: mcp-review-hub\n  disabled: true\n",
+    "- insert:\n    - id: custom-id\n      name: '@deepseek-ai/dsh-mcp-client'\n      config: { serverName: review-hub, command: custom }\n",
+  ]) assert.equal(addMcpEntry(target, original, "linux"), undefined);
+  for (const original of ['token: TOP_SECRET\nbroken: [', '{mcpServers: {}}', '- insert: []\n---\n- insert: []']) {
+    await write(target.configPath, original);
+    const result = await registerAgent(target, "linux");
+    assert.equal(result.status, "error");
+    assert.ok(!result.message?.includes("TOP_SECRET"));
+    assert.equal(await fs.readFile(target.configPath, "utf8"), original);
+  }
+  assert.equal(parseYaml(addMcpEntry(target, "[]\n", "linux")!)[0].insert[0].config.serverName, "review-hub");
+});
+
+test("Oh My Pi setup preserves servers, honors custom directories and existing dot config", async () => {
+  const context = await setup();
+  context.env.PI_CODING_AGENT_DIR = path.join(context.homeDir, "custom-omp");
+  const file = path.join(context.env.PI_CODING_AGENT_DIR, ".mcp.json");
+  const original = '{"mcpServers":{"weather":{"command":"weather"}},"$schema":"https://example.invalid/schema"}';
+  await write(file, original);
+  const [target] = await detectAgents(context);
+  assert.equal(target.id, "ohMyPi");
+  assert.equal(target.configPath, file);
+  assert.equal((await registerAgent(target, "linux")).status, "registered");
+  const config = JSON.parse(await fs.readFile(file, "utf8"));
+  assert.equal(config.mcpServers.weather.command, "weather");
+  assert.deepEqual(config.mcpServers["review-hub"], { command: "npx", args: ["-y", "review-hub-mcp"] });
+  assert.equal((await registerAgent(target, "linux")).status, "already-configured");
+  await assert.rejects(fs.stat(path.join(context.homeDir, ".omp")), { code: "ENOENT" });
+});
+
+test("Oh My Pi named profiles are isolated and cannot traverse directories", async () => {
+  const context = await setup();
+  context.env.OMP_PROFILE = "work";
+  context.env.PI_CODING_AGENT_DIR = path.join(context.homeDir, "ignored-for-profile");
+  const dir = path.join(context.homeDir, ".omp/profiles/work/agent");
+  await fs.mkdir(dir, { recursive: true });
+  const [target] = await detectAgents(context);
+  assert.equal(target.configPath, path.join(dir, "mcp.json"));
+  assert.equal((await registerAgent(target, "linux")).status, "registered");
+  await assert.rejects(fs.stat(path.join(context.homeDir, ".omp/agent")), { code: "ENOENT" });
+  context.env.OMP_PROFILE = "../other";
+  assert.deepEqual(await detectAgents(context), []);
+});
+
+test("DeepSeek Harness and Oh My Pi checkboxes skip configuration writes", async () => {
+  const context = await setup();
+  for (const dir of [".dsh", ".omp/agent"]) await fs.mkdir(path.join(context.homeDir, dir), { recursive: true });
+  const results = await registerDetectedAgents(context, () => false);
+  assert.deepEqual(results.map(r => [r.id, r.status]), [["deepseekHarness", "disabled"], ["ohMyPi", "disabled"]]);
+  for (const result of results) await assert.rejects(fs.stat(result.configPath), { code: "ENOENT" });
 });

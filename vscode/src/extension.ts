@@ -372,6 +372,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   decorator.start();
+  diffView.start();
   staged.start({ stageOnOpen: false });
   runtime = {
     store: hub.store,
@@ -397,6 +398,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider.refresh(id);
     }
     updateStatus();
+    // A new proposal for the currently selected file should also reveal its review.
+    void diffView.revealPendingForEditor(undefined, true).catch(err => logger.error("reveal pending review failed: " + String(err)));
   }
 
   // Like Antigravity: when an agent changes a file, open the MERGED review view beside the
@@ -432,7 +435,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         continue;
       }
       const cs = hub.store.findChangeByPath(workspace, relPath);
-      if (!cs || cs.binary || cs.hunks.length === 0) {
+      if (!cs || cs.binary || !cs.hunks.some(h => h.decision === "pending")) {
         continue;
       }
       if (autoOpened.has(cs.id)) {

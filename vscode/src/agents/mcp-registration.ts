@@ -4,6 +4,7 @@ import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { applyEdits, modify, parse as parseJsonc, type ParseError } from "jsonc-parser/lib/esm/main.js";
 import { parse as parseToml } from "smol-toml";
+import { parseDocument, isSeq } from "yaml";
 
 export const SUPPORTED_AGENTS = [
   { id: "claudeCode", label: "Claude Code" },
@@ -15,6 +16,8 @@ export const SUPPORTED_AGENTS = [
   { id: "rooCode", label: "Roo Code" },
   { id: "geminiCli", label: "Gemini CLI" },
   { id: "antigravity", label: "Antigravity" },
+  { id: "deepseekHarness", label: "DeepSeek Harness" },
+  { id: "ohMyPi", label: "Oh My Pi" },
 ] as const;
 export type AgentId = typeof SUPPORTED_AGENTS[number]["id"];
 
@@ -30,8 +33,8 @@ export interface DetectedAgent {
   id: AgentId;
   label: string;
   configPath: string;
-  format: "jsonc" | "toml";
-  section: "mcpServers" | "mcp" | "mcp_servers";
+  format: "jsonc" | "toml" | "yaml";
+  section: "mcpServers" | "mcp" | "mcp_servers" | "cordis";
 }
 export interface RegistrationResult {
   id: AgentId;
@@ -76,6 +79,18 @@ export async function detectAgents(context: AgentEnvironment): Promise<DetectedA
   const opencodeRoot = path.join(configHome, "opencode");
   const opencodeConfig = context.env.OPENCODE_CONFIG || (await exists(path.join(opencodeRoot, "opencode.jsonc"))
     ? path.join(opencodeRoot, "opencode.jsonc") : path.join(opencodeRoot, "opencode.json"));
+  const dshHome = context.env.DSH_HOME || path.join(home, ".dsh");
+  const ompRoot = path.join(home, context.env.PI_CONFIG_DIR || ".omp");
+  const profile = (context.env.OMP_PROFILE ?? context.env.PI_PROFILE ?? "").trim();
+  // Profiles are path components, never relative paths. Invalid names must not write elsewhere.
+  const validProfile = !profile || profile === "default" ||
+    (/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(profile) && !profile.endsWith(".") &&
+      !/^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\.|$)/i.test(profile));
+  const ompDir = profile && profile !== "default"
+    ? path.join(ompRoot, "profiles", profile, "agent")
+    : context.env.PI_CODING_AGENT_DIR?.replace(/^~(?=$|[/\\])/, home) || path.join(ompRoot, "agent");
+  const ompConfig = !(await exists(path.join(ompDir, "mcp.json"))) && await exists(path.join(ompDir, ".mcp.json"))
+    ? path.join(ompDir, ".mcp.json") : path.join(ompDir, "mcp.json");
   const extensions = new Set(context.installedExtensions.map(id => id.toLowerCase()));
   const definitions: (DetectedAgent & { probes: string[]; binary?: string; extensionIds?: string[] })[] = [
     { id: "claudeCode", label: "Claude Code", configPath: context.env.CLAUDE_CONFIG_DIR
@@ -89,6 +104,8 @@ export async function detectAgents(context: AgentEnvironment): Promise<DetectedA
     { id: "rooCode", label: "Roo Code", configPath: path.join(context.globalStorageDir, "rooveterinaryinc.roo-cline", "settings", "mcp_settings.json"), format: "jsonc", section: "mcpServers", probes: [path.join(context.globalStorageDir, "rooveterinaryinc.roo-cline")], extensionIds: ["rooveterinaryinc.roo-cline"] },
     { id: "geminiCli", label: "Gemini CLI", configPath: path.join(home, ".gemini", "settings.json"), format: "jsonc", section: "mcpServers", probes: [path.join(home, ".gemini", "settings.json")], binary: "gemini" },
     { id: "antigravity", label: "Antigravity", configPath: path.join(home, ".gemini", "antigravity", "mcp_config.json"), format: "jsonc", section: "mcpServers", probes: [path.join(home, ".gemini", "antigravity")], binary: "antigravity" },
+    { id: "deepseekHarness", label: "DeepSeek Harness", configPath: path.join(dshHome, "cordis.patch.yml"), format: "yaml", section: "cordis", probes: [dshHome], binary: "dsh", extensionIds: ["deepseek-harness.deepseek-harness-vscode"] },
+    ...(validProfile ? [{ id: "ohMyPi" as const, label: "Oh My Pi", configPath: ompConfig, format: "jsonc" as const, section: "mcpServers" as const, probes: [ompDir], binary: "omp" }] : []),
   ];
   const detected: DetectedAgent[] = [];
   for (const definition of definitions) {
@@ -109,12 +126,62 @@ function launchCommand(platform: NodeJS.Platform): { command: string; args: stri
     : { command: "npx", args: ["-y", "review-hub-mcp"] };
 }
 
+/** Cordis patches are a sequence of operations, not a generic mcpServers map. */
+function addHarnessEntry(text: string, launch: { command: string; args: string[] }, eol: string): string | undefined {
+  const document = parseDocument(text);
+  if (document.errors.length || (document.contents !== null && !isSeq(document.contents))) {
+    throw new Error("Invalid Cordis YAML patch list; configuration left unchanged.");
+  }
+  // YAML's JS tags stay inert. Inspect data only; never evaluate configuration expressions.
+  let operations: unknown;
+  try { operations = document.toJS({ maxAliasCount: 100 }); }
+  catch { throw new Error("Could not inspect Cordis YAML safely; configuration left unchanged."); }
+  const seen = new Set<object>();
+  const containsReviewHub = (value: unknown): boolean => {
+    if (!value || typeof value !== "object" || seen.has(value)) return false;
+    seen.add(value);
+    if (isRecord(value) && (value.id === "mcp-review-hub" ||
+      (value.name === "@deepseek-ai/dsh-mcp-client" && isRecord(value.config) && value.config.serverName === "review-hub"))) return true;
+    return Object.values(value).some(containsReviewHub);
+  };
+  if (containsReviewHub(operations)) return undefined;
+  const addition = [
+    "- insert:",
+    "    - id: mcp-review-hub",
+    "      name: '@deepseek-ai/dsh-mcp-client'",
+    "      config:",
+    "        serverName: review-hub",
+    "        transport: stdio",
+    "        command: " + JSON.stringify(launch.command),
+    "        args: " + JSON.stringify(launch.args),
+    "",
+  ].join(eol);
+  // Append without rewriting existing comments, expressions, or plugin settings.
+  // Empty sequence documents need an AST append to avoid producing invalid YAML.
+  let updated: string;
+  if (isSeq(document.contents) && document.contents.items.length === 0) {
+    document.contents.add(parseDocument(addition).toJS()[0]);
+    updated = document.toString().replace(/\n/g, eol);
+  } else {
+    updated = text + (text && !text.endsWith("\n") ? eol : "") + addition;
+  }
+  const validation = parseDocument(updated);
+  if (validation.errors.length || !isSeq(validation.contents)) {
+    throw new Error("This Cordis YAML layout cannot be extended safely; configuration left unchanged.");
+  }
+  return updated;
+}
+
 /** Add only a missing review-hub entry. Existing entries, comments and settings survive. */
 export function addMcpEntry(agent: DetectedAgent, original: string, platform: NodeJS.Platform): string | undefined {
   const bom = original.startsWith("\uFEFF") ? "\uFEFF" : "";
   const text = original.slice(bom.length);
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const launch = launchCommand(platform);
+  if (agent.format === "yaml") {
+    const updated = addHarnessEntry(text, launch, eol);
+    return updated === undefined ? undefined : bom + updated;
+  }
   if (agent.format === "toml") {
     let parsed: Record<string, unknown>;
     try { parsed = parseToml(text); } catch { throw new Error("Invalid TOML; configuration left unchanged."); }
