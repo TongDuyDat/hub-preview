@@ -1,7 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { constants } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { updateConfigurationFile } from "./config-file";
+import { installClaudeInstructions, type ClaudeInstructionsResult } from "./claude-instructions";
 import { applyEdits, modify, parse as parseJsonc, type ParseError } from "jsonc-parser/lib/esm/main.js";
 import { parse as parseToml } from "smol-toml";
 import { parseDocument, isSeq } from "yaml";
@@ -36,11 +37,16 @@ export interface DetectedAgent {
   format: "jsonc" | "toml" | "yaml";
   section: "mcpServers" | "mcp" | "mcp_servers" | "cordis";
 }
+export interface RegistrationOptions {
+  /** Separate opt-in; checked again immediately before writing the Claude rules. */
+  claudeInstructions?: () => boolean;
+}
 export interface RegistrationResult {
   id: AgentId;
   label: string;
   configPath: string;
   status: "registered" | "already-configured" | "disabled" | "error";
+  instructions?: ClaudeInstructionsResult;
   message?: string;
 }
 
@@ -53,12 +59,12 @@ async function exists(file: string): Promise<boolean> {
     throw error;
   }
 }
-async function executable(name: string, context: AgentEnvironment): Promise<boolean> {
+async function executable(name: string, context: AgentEnvironment, additionalDirs: readonly string[] = []): Promise<boolean> {
   const extensions = context.platform === "win32"
     ? ["", ...(context.env.PATHEXT || ".EXE;.CMD;.BAT").split(";").flatMap(s => [s.toLowerCase(), s.toUpperCase()])]
     : [""];
   const dirs = (context.env.PATH || context.env.Path || "").split(context.platform === "win32" ? ";" : path.delimiter).filter(Boolean);
-  for (const dir of dirs) {
+  for (const dir of new Set([...dirs, ...additionalDirs])) {
     for (const suffix of extensions) {
       const candidate = path.join(dir.replace(/^"|"$/g, ""), name + suffix);
       try {
@@ -92,10 +98,10 @@ export async function detectAgents(context: AgentEnvironment): Promise<DetectedA
   const ompConfig = !(await exists(path.join(ompDir, "mcp.json"))) && await exists(path.join(ompDir, ".mcp.json"))
     ? path.join(ompDir, ".mcp.json") : path.join(ompDir, "mcp.json");
   const extensions = new Set(context.installedExtensions.map(id => id.toLowerCase()));
-  const definitions: (DetectedAgent & { probes: string[]; binary?: string; extensionIds?: string[] })[] = [
+  const definitions: (DetectedAgent & { probes: string[]; binary?: string; binaryDirs?: string[]; extensionIds?: string[] })[] = [
     { id: "claudeCode", label: "Claude Code", configPath: context.env.CLAUDE_CONFIG_DIR
       ? path.join(context.env.CLAUDE_CONFIG_DIR, ".claude.json") : path.join(home, ".claude.json"),
-      format: "jsonc", section: "mcpServers", probes: [context.env.CLAUDE_CONFIG_DIR || path.join(home, ".claude"), path.join(home, ".claude.json")], binary: "claude", extensionIds: ["anthropic.claude-code"] },
+      format: "jsonc", section: "mcpServers", probes: [context.env.CLAUDE_CONFIG_DIR || path.join(home, ".claude"), path.join(home, ".claude.json")], binary: "claude", binaryDirs: context.platform === "win32" ? [] : [path.join(home, ".local", "bin")], extensionIds: ["anthropic.claude-code"] },
     { id: "codex", label: "Codex", configPath: path.join(codexHome, "config.toml"), format: "toml", section: "mcp_servers", probes: [codexHome], binary: "codex", extensionIds: ["openai.chatgpt"] },
     { id: "cursor", label: "Cursor", configPath: path.join(home, ".cursor", "mcp.json"), format: "jsonc", section: "mcpServers", probes: [path.join(home, ".cursor")], binary: "cursor" },
     { id: "windsurf", label: "Windsurf", configPath: path.join(home, ".codeium", "windsurf", "mcp_config.json"), format: "jsonc", section: "mcpServers", probes: [path.join(home, ".codeium", "windsurf")], binary: "windsurf" },
@@ -111,9 +117,9 @@ export async function detectAgents(context: AgentEnvironment): Promise<DetectedA
   for (const definition of definitions) {
     let found = definition.extensionIds?.some(id => extensions.has(id)) ?? false;
     for (const probe of definition.probes) { if (!found) found = await exists(probe); }
-    if (!found && definition.binary) found = await executable(definition.binary, context);
+    if (!found && definition.binary) found = await executable(definition.binary, context, definition.binaryDirs);
     if (found) {
-      const { probes, binary, extensionIds, ...agent } = definition;
+      const { probes, binary, binaryDirs, extensionIds, ...agent } = definition;
       detected.push(agent);
     }
   }
@@ -215,60 +221,37 @@ export function addMcpEntry(agent: DetectedAgent, original: string, platform: No
   return bom + updated + (updated.endsWith("\n") ? "" : eol);
 }
 
-async function readOptional(file: string): Promise<string | undefined> {
-  try { return await fs.readFile(file, "utf8"); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
-  }
-}
-
-/** Atomic update with a private backup, preserving symlinks and rejecting concurrent edits. */
+/** Add the MCP entry independently of instruction-file setup. */
 export async function registerAgent(
   agent: DetectedAgent,
   platform: NodeJS.Platform,
   enabled: () => boolean = () => true,
 ): Promise<RegistrationResult> {
   const base = { id: agent.id, label: agent.label, configPath: agent.configPath };
-  if (!enabled()) return { ...base, status: "disabled" };
-  let temporary: string | undefined;
   try {
-    let target = agent.configPath;
-    try { target = await fs.realpath(target); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      const entry = await fs.lstat(target).catch(() => undefined);
-      if (entry?.isSymbolicLink()) throw new Error("Config is a broken symlink; left unchanged.");
-    }
-    const original = await readOptional(target);
-    const updated = addMcpEntry(agent, original ?? "", platform);
-    if (updated === undefined) return { ...base, status: "already-configured" };
-    if (!enabled()) return { ...base, status: "disabled" };
-    await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-    const mode = original === undefined ? 0o600 : (await fs.stat(target)).mode & 0o777;
-    temporary = path.join(path.dirname(target), "." + path.basename(target) + ".review-hub-" + randomUUID() + ".tmp");
-    await fs.writeFile(temporary, updated, { flag: "wx", mode });
-    if ((await readOptional(target)) !== original) throw new Error("Config changed during setup; left unchanged. Retry the scan.");
-    if (!enabled()) return { ...base, status: "disabled" };
-    if (original !== undefined) {
-      try { await fs.writeFile(target + ".review-hub.bak", original, { flag: "wx", mode: 0o600 }); } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      }
-    }
-    await fs.rename(temporary, target);
-    temporary = undefined;
-    return { ...base, status: "registered" };
+    const status = await updateConfigurationFile(agent.configPath, original => addMcpEntry(agent, original, platform), enabled);
+    return { ...base, status: status === "changed" ? "registered" : status === "unchanged" ? "already-configured" : "disabled" };
   } catch (error) {
     return { ...base, status: "error", message: error instanceof Error ? error.message : "Could not update agent configuration." };
-  } finally {
-    if (temporary) await fs.unlink(temporary).catch(() => undefined);
   }
 }
 
 export async function registerDetectedAgents(
   environment: AgentEnvironment,
   enabled: (agent: AgentId) => boolean,
+  options: RegistrationOptions = {},
 ): Promise<RegistrationResult[]> {
   const agents = await detectAgents(environment);
   const results: RegistrationResult[] = [];
-  for (const agent of agents) results.push(await registerAgent(agent, environment.platform, () => enabled(agent.id)));
+  for (const agent of agents) {
+    const result = await registerAgent(agent, environment.platform, () => enabled(agent.id));
+    if (agent.id === "claudeCode" && (result.status === "registered" || result.status === "already-configured") && options.claudeInstructions?.()) {
+      result.instructions = await installClaudeInstructions(
+        environment.env.CLAUDE_CONFIG_DIR || path.join(environment.homeDir, ".claude"),
+        () => enabled(agent.id) && !!options.claudeInstructions?.(),
+      );
+    }
+    results.push(result);
+  }
   return results;
 }

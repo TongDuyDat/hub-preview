@@ -278,3 +278,28 @@ test("DeepSeek Harness and Oh My Pi checkboxes skip configuration writes", async
   assert.deepEqual(results.map(r => [r.id, r.status]), [["deepseekHarness", "disabled"], ["ohMyPi", "disabled"]]);
   for (const result of results) await assert.rejects(fs.stat(result.configPath), { code: "ENOENT" });
 });
+
+test("Linux native Claude is detected without shell PATH or an existing config and registered at user scope", async () => {
+  const context = await setup();
+  const binary = path.join(context.homeDir, ".local", "bin", "claude");
+  const marker = path.join(context.homeDir, "claude-must-not-run");
+  await write(binary, "#!/bin/sh\ntouch " + JSON.stringify(marker));
+  await fs.chmod(binary, 0o755);
+  const detected = await detectAgents(context);
+  assert.deepEqual(detected.map(a => a.id), ["claudeCode"]);
+  assert.equal(detected[0].configPath, path.join(context.homeDir, ".claude.json"));
+  await assert.rejects(fs.stat(detected[0].configPath), { code: "ENOENT" });
+  const results = await registerDetectedAgents(context, () => true);
+  assert.equal(results[0].status, "registered");
+  const config = parseJsonc(await fs.readFile(detected[0].configPath, "utf8"));
+  assert.deepEqual(config.mcpServers["review-hub"], { type: "stdio", command: "npx", args: ["-y", "review-hub-mcp"] });
+  assert.equal((await registerDetectedAgents(context, () => true))[0].status, "already-configured");
+  await assert.rejects(fs.stat(marker), { code: "ENOENT" });
+});
+
+test("Linux Claude detection ignores non-executable files in the native install location", async () => {
+  const context = await setup();
+  await write(path.join(context.homeDir, ".local", "bin", "claude"), "not installed");
+  assert.deepEqual(await detectAgents(context), []);
+  await assert.rejects(fs.stat(path.join(context.homeDir, ".claude.json")), { code: "ENOENT" });
+});

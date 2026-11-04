@@ -20,7 +20,11 @@ In VS Code, select **Extensions → … → Install from VSIX…**, then reload 
 code --install-extension review-hub-vscode-0.3.4.vsix --force
 ```
 
-Enable **Settings → Extensions → Review Hub → Auto Register MCP** and select your agents.
+On a new machine, choose **Enable and Scan** in the first-run prompt, or run **Review Hub: Scan and Register Detected Agents** from the Command Palette. You can also enable **Settings → Extensions → Review Hub → Auto Register MCP** and select your agents. This opt-in is local to each machine and does not sync.
+
+For Claude Code on Linux, setup detects both the VS Code extension and the native `~/.local/bin/claude` installation, even when VS Code has a different PATH. The user-level MCP entry is added to `~/.claude.json` (or `CLAUDE_CONFIG_DIR/.claude.json`). Run `claude mcp list` in a new Claude session to check it. See **Output → Review Hub** for the detected agent and configuration path.
+When **Claude: Install Instructions** is enabled (the default), automatic Claude setup also adds a managed Review Hub section to `~/.claude/CLAUDE.md` (or `CLAUDE_CONFIG_DIR/CLAUDE.md`). Existing instructions are preserved, an initial `.review-hub.bak` is kept, and repeated scans do not duplicate the section. This also works when the MCP connection was already configured. Restart the Claude session to load the rules. The rules guide Claude to `propose_edit`/`propose_write`/`propose_delete`; they are not an enforcement hook. Turning the setting off stops updates without removing existing rules.
+
 The MCP server requires Node.js 22.13 or newer on the agent host.
 Marketplace publication is planned separately; the public VSIX is available through GitHub Releases.
 

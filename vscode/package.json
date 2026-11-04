@@ -288,7 +288,13 @@
           "type": "boolean",
           "default": false,
           "scope": "machine",
-          "markdownDescription": "Automatically detect supported AI agents on this machine (or the current remote host) and add Review Hub MCP to their user configuration. Scans at startup, every minute and when installed extensions change. Existing MCP entries are preserved. Turning this off stops registration and keeps configurations already added."
+          "markdownDescription": "Enable on **each machine** (this setting does not sync). Automatically detect supported AI agents on this machine (or the current remote host) and add Review Hub MCP to their user configuration. The first launch offers **Enable and Scan**; the **Scan and Register Detected Agents** command can also enable setup. Scans at startup, every minute and when installed extensions change. Existing MCP entries are preserved. Turning this off stops registration and keeps configurations already added."
+        },
+        "review-hub.claude.installInstructions": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "With **Auto Register MCP** and **Agents: Claude Code** enabled, also install Review Hub editing instructions in the user-level `~/.claude/CLAUDE.md` (or `CLAUDE_CONFIG_DIR/CLAUDE.md`). Only the marked Review Hub section is updated; existing content is preserved and backed up. Start a new Claude session to load it. Turning this off stops updates and keeps any installed instructions."
         },
         "review-hub.agents.claudeCode": {
           "type": "boolean",

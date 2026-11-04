@@ -166,9 +166,9 @@ const stub = {
       messages.push(message);
       return undefined;
     },
-    showInformationMessage: async (message: string) => {
+    showInformationMessage: async (message: string, ..._items: string[]) => {
       messages.push(message);
-      return undefined;
+      return process.env.VSCODE_STUB_INFO_CHOICE;
     },
     showWarningMessage: async (message: string) => {
       messages.push(message);
@@ -295,7 +295,17 @@ const stub = {
       const config = envJson("VSCODE_STUB_CONFIG");
       return {
         get: <T>(key: string, fallback: T): T => (key in config ? (config[key] as T) : fallback),
-        update: async (): Promise<void> => {},
+        inspect: <T>(key: string) => ({ key, globalValue: key in config ? config[key] as T : undefined }),
+        update: async (key: string, value: unknown, _target?: number): Promise<void> => {
+          if (key !== "autoRegisterMcp") return;
+          if (process.env.VSCODE_STUB_CONFIG_UPDATE_ERROR) throw new Error("settings unavailable");
+          const current = envJson("VSCODE_STUB_CONFIG");
+          if (value === undefined) delete current[key]; else current[key] = value;
+          process.env.VSCODE_STUB_CONFIG = JSON.stringify(current);
+          for (const listener of stub.__listeners) {
+            if (listener.event === "configuration") (listener.cb as (event: unknown) => void)({ affectsConfiguration: (section: string) => section === "review-hub." + key });
+          }
+        },
       };
     },
     get textDocuments() {
