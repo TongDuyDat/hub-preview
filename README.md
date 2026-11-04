@@ -1,5 +1,7 @@
 # Review Hub (VS Code & JetBrains IDEs)
 
+<img src="docs/assets/review-hub.svg" width="96" height="96" alt="Review Hub: robot, code changes and a magnifier with a check mark">
+
 **Tác giả:** Hung, Tong Duy Dat
 
 Xem **chính xác** AI coding agent đã đổi gì trong project của bạn — **bất kể agent chạy ở chế độ quyền nào** — và duyệt/từ chối **từng khối (hunk) một**, kiểu hunkwise.

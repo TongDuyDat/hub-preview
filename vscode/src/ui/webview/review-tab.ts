@@ -65,6 +65,7 @@ export class ReviewTab implements vscode.Disposable {
         localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "resources"), vscode.Uri.joinPath(this.extensionUri, "vscode", "resources")],
       },
     );
+    panel.iconPath = vscode.Uri.joinPath(this.extensionUri, "resources", "icons", "review-hub.svg");
     panel.webview.html = webviewHtml(panel.webview, this.extensionUri, "review-tab", {
       html: "review.html",
       css: "review.css",

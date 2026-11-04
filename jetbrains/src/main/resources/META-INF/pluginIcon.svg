@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="frame" x1="32" y1="80" x2="194" y2="217" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D5CBFF"/><stop offset=".55" stop-color="#A18AFF"/><stop offset="1" stop-color="#6650E8"/>
+    </linearGradient>
+    <linearGradient id="robot" x1="144" y1="42" x2="224" y2="101" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E7DEFF"/><stop offset="1" stop-color="#9A7DFF"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="151" y1="151" x2="218" y2="218" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A6E8FF"/><stop offset=".5" stop-color="#9EABFF"/><stop offset="1" stop-color="#765BFF"/>
+    </linearGradient>
+  </defs>
+  <!-- Code editor and proposed changes. The canvas outside the mark stays transparent. -->
+  <rect x="27" y="74" width="168" height="146" rx="22" fill="#1C1B3B" stroke="url(#frame)" stroke-width="7"/>
+  <path d="M31 101H150" stroke="#AFA2F0" stroke-width="4"/>
+  <g fill="#B5B7FF">
+    <circle cx="45" cy="88" r="4"/><circle cx="59" cy="88" r="4"/><circle cx="73" cy="88" r="4"/>
+  </g>
+  <path d="m55 115-9 8 9 8m29-16 9 8-9 8m-12-18-8 20" stroke="#C6B9FF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M47 146h26m14 0h43" stroke="#7764D2" stroke-width="6" stroke-linecap="round"/>
+  <path d="M47 164h84" stroke="#4D254B" stroke-width="14" stroke-linecap="round"/>
+  <path d="M45 164h8m11 0h42" stroke="#FF6C9C" stroke-width="4" stroke-linecap="round"/>
+  <path d="M47 184h84" stroke="#164A40" stroke-width="14" stroke-linecap="round"/>
+  <path d="M45 184h8m-4-4v8m15-4h49" stroke="#60E89A" stroke-width="4" stroke-linecap="round"/>
+  <path d="M47 202h69" stroke="#6B5CBA" stroke-width="4" stroke-linecap="round"/>
+  <!-- Friendly robot, angled like the supplied reference. -->
+  <g transform="rotate(12 183 75)">
+    <path d="M183 44V28" stroke="#C4A9FF" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="183" cy="23" r="6" fill="#D9BCFF"/>
+    <rect x="139" y="63" width="14" height="24" rx="7" fill="#9279F4"/>
+    <rect x="216" y="63" width="14" height="24" rx="7" fill="#A58BFF"/>
+    <rect x="148" y="46" width="73" height="59" rx="23" fill="url(#robot)"/>
+    <rect x="156" y="55" width="57" height="41" rx="16" fill="#111A35"/>
+    <path d="M170 69v9m28-9v9" stroke="#86E2FF" stroke-width="7" stroke-linecap="round"/>
+    <path d="M160 51c6-3 13-4 20-3" stroke="#F1EAFF" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <!-- Magnifier and accepted-change check. -->
+  <path d="m211 209 24 24" stroke="#5341C7" stroke-width="18" stroke-linecap="round"/>
+  <path d="m210 207 23 23" stroke="url(#lens)" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="183" cy="180" r="36" fill="#172037" stroke="url(#lens)" stroke-width="9"/>
+  <path d="m167 180 11 11 22-25" stroke="#68EA9C" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
