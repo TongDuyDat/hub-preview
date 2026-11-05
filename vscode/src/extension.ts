@@ -1,3 +1,4 @@
+import { prepareMcpRuntime } from "./agents/mcp-runtime";
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -828,14 +829,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       refreshUi();
     }),
-    vscode.commands.registerCommand("review-hub.copyMcpConfig", () => copyMcpConfigSnippet()),
+    vscode.commands.registerCommand("review-hub.copyMcpConfig", () => copyMcpConfigSnippet(context)),
     vscode.commands.registerCommand("review-hub.copyAgentRules", () => copyAgentRulesSnippet()),
-    vscode.commands.registerCommand("review-hub.registerMcp", () => copyMcpConfigSnippet()),
+    vscode.commands.registerCommand("review-hub.registerMcp", () => copyMcpConfigSnippet(context)),
     vscode.commands.registerCommand("review-hub.installInstructions", () => installInstructions()),
     vscode.commands.registerCommand("review-hub.showHubInfo", async () => {
       const entry = registry.readEntry();
       const msg = entry
-        ? `Hub: ${entry.url}\nPID: ${entry.pid} (alive: ${pidAlive(entry.pid)})\nWorkspace: ${entry.workspace}\nMCP server: npx -y review-hub-mcp`
+        ? `Hub: ${entry.url}\nPID: ${entry.pid} (alive: ${pidAlive(entry.pid)})\nWorkspace: ${entry.workspace}\nMCP server: bundled with the Review Hub extension`
         : "No hub registry entry.";
       void vscode.window.showInformationMessage(msg, { modal: true });
     }),
@@ -962,20 +963,25 @@ export const AGENT_RULES_BLOCK = [
   "This project uses Review Hub to review AI edits. **Do not use the built-in `edit`,",
   "`write`, or shell commands to modify source files.** Use the Review Hub MCP tools",
   "instead, so every change is recorded and the user can accept or reject each hunk:",
+  "Use the actual tool names exposed by Review Hub; prefixes vary by client.",
+  "In Claude Code, use ToolSearch when available to discover deferred review-hub tools.",
   "",
-  "- Prefer `mcp__review_hub__propose_changes` to batch file edits, writes and deletions.",
+  "- Prefer `propose_changes` to batch file edits, writes and deletions.",
   "  It reads staged content and returns changed excerpts or error context. Inspect each",
   "  result and retry only failed file entries; successful entries are already staged.",
-  "- `mcp__review_hub__propose_edit` — change a file. Same arguments as the native edit",
+  "- `propose_edit` — change a file. Same arguments as the native edit",
   "  tool: `path`, `old_string`, `new_string`, optional `replace_all`.",
   "  **Use this instead of `edit`.**",
-  "- `mcp__review_hub__propose_write` — create or replace a whole file (`path`, `content`).",
+  "- `propose_write` — create or replace a whole file (`path`, `content`).",
   "  **Use this instead of `write`.**",
-  "- `mcp__review_hub__propose_delete` — delete a file (`path`).",
+  "- `propose_delete` — delete a file (`path`).",
   "  **Use this instead of `rm`**.",
-  "- `mcp__review_hub__read_file` — read a file (`path`).",
-  "- `mcp__review_hub__list_changes` — list files changed since the last accepted checkpoint.",
-  "- `mcp__review_hub__get_review_updates` — inspect user Accept/Reject decisions, including partial reviews.",
+  "  If unavailable, use `propose_changes` with `{changes:[{path: \"file.py\", delete:true}]}` when exposed.",
+  "  Never use an empty write as deletion. If neither tool is exposed, reconnect/update",
+  "  Review Hub MCP (Claude: check `/mcp`); missing tools alone do not permit native writes.",
+  "- `read_file` — read a file (`path`).",
+  "- `list_changes` — list files changed since the last accepted checkpoint.",
+  "- `get_review_updates` — inspect user Accept/Reject decisions, including partial reviews.",
   "- After review feedback, read affected files through `read_file` before editing again.",
   "  Keep accepted code; do not re-propose rejected hunks unless the user requests a new revision.",
   "- Review Hub writes changes to disk immediately so builds/tests use the new code.",
@@ -1000,19 +1006,19 @@ async function copyAgentRulesSnippet(): Promise<void> {
   );
 }
 
-async function copyMcpConfigSnippet(): Promise<void> {
-  const config = {
-    mcpServers: {
-      "review-hub": {
-        command: "npx",
-        args: ["-y", "review-hub-mcp"]
-      }
-    }
-  };
-  await vscode.env.clipboard.writeText(JSON.stringify(config, null, 2));
-  void vscode.window.showInformationMessage(
-    "Review Hub MCP configuration copied to clipboard! Paste it into your AI tool settings (~/.claude.json, Cline, Roo Code, etc.)."
-  );
+async function copyMcpConfigSnippet(context: vscode.ExtensionContext): Promise<void> {
+  try {
+    // This explicit command prepares app-private runtime data, not agent settings.
+    const launch = await prepareMcpRuntime(context.extensionUri.fsPath, context.globalStorageUri.fsPath,
+      process.execPath, !!process.versions.electron, () => true);
+    if (!launch) throw new Error("Bundled MCP runtime unavailable");
+    await vscode.env.clipboard.writeText(JSON.stringify({ mcpServers: { "review-hub": launch } }, null, 2));
+    void vscode.window.showInformationMessage(
+      "Review Hub bundled MCP configuration copied. Paste it into your AI tool settings and reconnect MCP. Use Scan and Register Detected Agents for client-specific formats.",
+    );
+  } catch {
+    void vscode.window.showErrorMessage("Review Hub: could not prepare the bundled MCP server. Reinstall the extension and check access to its profile storage.");
+  }
 }
 
 async function installInstructions(): Promise<void> {

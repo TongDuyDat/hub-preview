@@ -140,7 +140,10 @@
     twisty.appendChild(icon("chevron"));
     toggle.appendChild(twisty);
     toggle.appendChild(icon("file"));
-    toggle.appendChild(el("span", "name", file.name));
+    const filePath = file.path.replace(/\\/g, "/");
+    const label = el("span", "name", filePath);
+    label.title = filePath;
+    toggle.appendChild(label);
     head.appendChild(toggle);
     const meta = el("div", "row-meta");
     if (file.isNew || file.isDeleted || file.binary) meta.appendChild(el("span", "file-kind " + (file.isNew ? "add" : file.isDeleted ? "del" : ""), file.isNew ? "A" : file.isDeleted ? "D" : "B"));
@@ -151,8 +154,8 @@
     }
     const controls = el("div", "row-controls");
     controls.appendChild(button("", "Open review for " + file.path, function () { send("openDiff", { changeId: file.id }); }, "icon-button", "open", file.id + "-open"));
-    controls.appendChild(button("", "Accept all changes in " + file.name, function () { send("acceptFile", { changeId: file.id }); }, "icon-button accept", "check", file.id + "-accept"));
-    controls.appendChild(button("", "Reject all changes in " + file.name, function () { send("rejectFile", { changeId: file.id }); }, "icon-button reject", "close", file.id + "-reject"));
+    controls.appendChild(button("", "Accept all changes in " + file.path, function () { send("acceptFile", { changeId: file.id }); }, "icon-button accept", "check", file.id + "-accept"));
+    controls.appendChild(button("", "Reject all changes in " + file.path, function () { send("rejectFile", { changeId: file.id }); }, "icon-button reject", "close", file.id + "-reject"));
     meta.appendChild(controls);
     head.appendChild(meta);
     wrap.appendChild(head);

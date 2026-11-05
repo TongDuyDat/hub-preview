@@ -1,3 +1,4 @@
+import { prepareMcpRuntime } from "./mcp-runtime";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -37,11 +38,18 @@ export function startAgentAutoRegistration(
         }
         try {
           const storage = context.globalStorageUri;
+          // The injected scan used by tests has no installation side effects.
+          const launch = scan === registerDetectedAgents ? await prepareMcpRuntime(
+            context.extensionUri.fsPath, context.globalStorageUri.fsPath, process.execPath,
+            !!process.versions.electron, () => isEnabled(),
+          ) : undefined;
+          if (!isEnabled() || (scan === registerDetectedAgents && !launch)) continue;
           const results = await scan({
             homeDir: os.homedir(), env: process.env, platform: process.platform,
             globalStorageDir: storage ? path.dirname(storage.fsPath) : path.join(os.homedir(), ".config", "Code", "User", "globalStorage"),
             installedExtensions: (vscode.extensions?.all ?? []).map(extension => extension.id),
           }, id => isEnabled(id), {
+            mcpLaunch: launch,
             requireReview: () => vscode.workspace.getConfiguration("review-hub").get<boolean>("requireReview", false),
             claudeInstructions: () => isEnabled("claudeCode") && vscode.workspace.getConfiguration("review-hub").get<boolean>("claude.installInstructions", true),
           });
@@ -53,7 +61,7 @@ export function startAgentAutoRegistration(
             logger.info("Agent MCP scan (" + (vscode.env.remoteName || "local") + "): " + results.length + " detected");
             for (const result of results) {
               const text = result.label + ": " + result.status + " — " + result.configPath + (result.message ? " — " + result.message : "");
-              if (result.status === "error") logger.warn(text); else logger.info(text);
+              if (result.status === "error" || result.customMcp) logger.warn(text); else logger.info(text);
               if (result.requiredReview) {
                 const hook = result.requiredReview;
                 const message = result.label + " required review: " + hook.status + " — " + hook.path + (hook.message ? " — " + hook.message : "");
@@ -66,6 +74,8 @@ export function startAgentAutoRegistration(
               }
             }
           }
+          const custom = results.filter(result => result.customMcp);
+          if ((changed || manual) && custom.length) void vscode.window.showWarningMessage("Review Hub: custom or disabled MCP configurations kept for " + custom.map(result => result.label).join(", ") + ". Verify their server tools; see Review Hub output.");
           const hooksAdded = results.filter(result => result.requiredReview?.status === "installed");
           const hooksFailed = results.filter(result => ["error", "unsupported"].includes(result.requiredReview?.status ?? ""));
           if ((changed || manual) && hooksAdded.length) void vscode.window.showInformationMessage("Review Hub: required review hooks installed for " + hooksAdded.map(result => result.label).join(", ") + ". Start a new agent session. Shell/build/test commands and direct writes are blocked; accept changes in Hub.");
@@ -76,7 +86,7 @@ export function startAgentAutoRegistration(
           const instructionsFailed = results.filter(result => result.instructions?.status === "error");
           if (added.length || instructionsAdded.length) {
             const messages: string[] = [];
-            if (added.length) messages.push("Review Hub MCP added to " + added.map(result => result.label).join(", ") + ". Reconnect MCP in those agents to load it.");
+            if (added.length) messages.push("Review Hub MCP configured for " + added.map(result => result.label).join(", ") + ". Reconnect MCP in those agents to load it.");
             if (instructionsAdded.length) messages.push("Claude Code instructions installed in " + instructionsAdded[0].instructions!.path + ". Start a new Claude session to load the Review Hub editing workflow.");
             void vscode.window.showInformationMessage(messages.join(" "));
           }
@@ -87,7 +97,7 @@ export function startAgentAutoRegistration(
             : "Review Hub: no supported agents detected on this host.");
         } catch {
           if (!disposed) {
-            logger.warn("Agent MCP scan failed. Check access to agent configuration directories.");
+            logger.warn("Agent MCP scan failed. Check the bundled MCP runtime and agent configuration directories.");
             if (manual) void vscode.window.showWarningMessage("Review Hub: agent scan failed. Check access to the configuration directories.");
           }
         }

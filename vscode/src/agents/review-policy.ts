@@ -5,7 +5,7 @@ export function reviewToolAllowed(client: "claude" | "omp", name: unknown, input
   const prefixes = client === "omp" ? ["mcp__review_hub_"] : ["mcp__review_hub__", "mcp__review-hub__"];
   const tools = prefixes.flatMap(prefix => actions.map(action => prefix + action));
   if (tools.includes(name)) return true;
-  if (client === "claude") return ["Read", "Glob", "Grep", "AskUserQuestion", "TodoWrite"].includes(name);
+  if (client === "claude") return ["Read", "Glob", "Grep", "ToolSearch", "AskUserQuestion", "TodoWrite"].includes(name);
   const args = input && typeof input === "object" ? input as Record<string, unknown> : {};
   if (name === "write") {
     // Exact XDEV tool identity, never a file path, generic MCP dispatcher or alias.

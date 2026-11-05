@@ -42,7 +42,7 @@ test("generated OMP hook blocks before execution in main and child factories", a
 });
 
 test("generated Claude hook protocol blocks invalid input, shell, self-accept; allows proposals", () => {
-  for (const [name, status] of [["Bash", 2], ["mcp__review_hub__accept", 2], ["mcp__review_hub__propose_edit", 0], ["Read", 0]] as const) {
+  for (const [name, status] of [["Bash", 2], ["mcp__review_hub__accept", 2], ["mcp__review_hub__propose_edit", 0], ["Read", 0], ["ToolSearch", 0], ["ToolSearchExecute", 2], ["mcp__other__propose_delete", 2]] as const) {
     const result = spawnSync(process.execPath, ["-e", claudeReviewHook()], { input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: name, tool_input: {} }) });
     assert.equal(result.status, status, result.stderr.toString());
   }

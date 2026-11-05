@@ -87,7 +87,9 @@ h1 { margin: 0; font-size: 13px; font-weight: 600; line-height: 20px; }
 .twisty { display: flex; align-items: center; justify-content: center; width: 10px; flex-shrink: 0; }
 .twisty .icon { width: 12px; height: 12px; }
 .twisty.expanded .icon { transform: rotate(90deg); }
-.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 400; line-height: 22px; }
+.file-link { align-items: flex-start; padding: 3px 0; }
+.file-link > .icon, .file-link > .twisty { margin-top: 2px; }
+.name { min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: 13px; font-weight: 400; line-height: 18px; }
 .row-meta { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .row-controls { display: flex; align-items: center; gap: 2px; width: 0; overflow: hidden; visibility: hidden; }
 .tree-row:hover .row-controls, .tree-row:focus-within .row-controls,

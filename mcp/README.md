@@ -178,3 +178,21 @@ code and never automatically re-propose rejected hunks without a new user reques
 This gate is session-based; reconnecting agents should use `get_review_updates` to
 replay history. Update both extension/Hub and MCP server to enable feedback. Older
 Hubs retain normal tool behavior but the feedback tool reports unavailability.
+
+### One bundled MCP server for every registered agent
+
+With Auto Register MCP enabled, the VS Code extension installs its bundled MCP server
+in its profile storage and uses that same runtime for all 11 supported agent adapters.
+This provides proposal tools (including deletion), batch edits and review feedback
+without depending on an old global copy or the currently published npm package.
+It uses the extension host executable, with ELECTRON_RUN_AS_NODE for desktop hosts;
+OpenCode's environment field, Codex TOML and DeepSeek Harness YAML are serialized
+according to their adapter format. Restart/reconnect agent MCP sessions after updates.
+
+Known generated `npx -y review-hub-mcp` launchers and exact legacy Review Hub paths
+are upgraded on opted-in scans. Custom launchers, remote entries, disabled entries,
+and TOML layouts that cannot be changed safely remain intact and produce a warning.
+Existing environment settings and other servers are preserved. Updating the extension
+refreshes the runtime at a stable profile path; no per-agent manual copy is required.
+This is MCP tool availability for every adapter; mandatory tool hooks remain limited
+to clients that support them. Installing the VSIX alone does not enable registration.

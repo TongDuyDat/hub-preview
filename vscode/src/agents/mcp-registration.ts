@@ -1,3 +1,4 @@
+import { canUpgradeLaunch, sameLaunch, type McpLaunch, type McpRuntimeOptions } from "./mcp-runtime";
 import { installRequiredReview, type RequiredReviewResult } from "./required-review";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -6,7 +7,7 @@ import { updateConfigurationFile } from "./config-file";
 import { installClaudeInstructions, type ClaudeInstructionsResult } from "./claude-instructions";
 import { applyEdits, modify, parse as parseJsonc, type ParseError } from "jsonc-parser/lib/esm/main.js";
 import { parse as parseToml } from "smol-toml";
-import { parseDocument, isSeq } from "yaml";
+import { parseDocument, isSeq, isMap } from "yaml";
 
 export const SUPPORTED_AGENTS = [
   { id: "claudeCode", label: "Claude Code" },
@@ -42,6 +43,7 @@ export interface RegistrationOptions {
   /** Separate opt-in; checked again immediately before writing the Claude rules. */
   claudeInstructions?: () => boolean;
   requireReview?: () => boolean;
+  mcpLaunch?: McpLaunch;
 }
 export interface RegistrationResult {
   id: AgentId;
@@ -50,6 +52,7 @@ export interface RegistrationResult {
   status: "registered" | "already-configured" | "disabled" | "error";
   instructions?: ClaudeInstructionsResult;
   requiredReview?: RequiredReviewResult;
+  customMcp?: boolean;
   message?: string;
 }
 
@@ -136,7 +139,7 @@ function launchCommand(platform: NodeJS.Platform): { command: string; args: stri
 }
 
 /** Cordis patches are a sequence of operations, not a generic mcpServers map. */
-function addHarnessEntry(text: string, launch: { command: string; args: string[] }, eol: string): string | undefined {
+function addHarnessEntry(text: string, launch: McpLaunch, eol: string, runtime?: McpRuntimeOptions, platform: NodeJS.Platform = "linux"): string | undefined {
   const document = parseDocument(text);
   if (document.errors.length || (document.contents !== null && !isSeq(document.contents))) {
     throw new Error("Invalid Cordis YAML patch list; configuration left unchanged.");
@@ -153,7 +156,35 @@ function addHarnessEntry(text: string, launch: { command: string; args: string[]
       (value.name === "@deepseek-ai/dsh-mcp-client" && isRecord(value.config) && value.config.serverName === "review-hub"))) return true;
     return Object.values(value).some(containsReviewHub);
   };
-  if (containsReviewHub(operations)) return undefined;
+  if (containsReviewHub(operations)) {
+    if (!runtime) return undefined;
+    let changed = false;
+    let matched = false;
+    let custom = false;
+    const visit = (node: unknown): void => {
+      if (isSeq(node)) { for (const item of node.items) visit(item); }
+      else if (isMap(node)) {
+        const config = node.get("config", true);
+        if (node.get("name") === "@deepseek-ai/dsh-mcp-client" && isMap(config) && config.get("serverName") === "review-hub") {
+          matched = true;
+          const entry = config.toJSON() as Record<string, unknown>;
+          if (entry.env !== undefined && !isRecord(entry.env)) { custom = true; return; }
+          if (sameLaunch(entry, launch)) return;
+          if (node.get("disabled") === true || node.get("enabled") === false || !canUpgradeLaunch(entry, runtime, platform)) { custom = true; return; }
+          config.set("command", launch.command);
+          config.set("args", document.createNode(launch.args));
+          if (launch.env) config.set("env", document.createNode({ ...(isRecord(entry.env) ? entry.env : {}), ...launch.env }));
+          changed = true;
+          return;
+        }
+        for (const pair of node.items) visit(pair.value);
+      }
+    };
+    visit(document.contents);
+    if (!changed) { if (custom || !matched) runtime.onCustom?.(); return undefined; }
+    if (custom) runtime.onCustom?.();
+    return document.toString().replace(/\n/g, eol);
+  }
   const addition = [
     "- insert:",
     "    - id: mcp-review-hub",
@@ -163,6 +194,7 @@ function addHarnessEntry(text: string, launch: { command: string; args: string[]
     "        transport: stdio",
     "        command: " + JSON.stringify(launch.command),
     "        args: " + JSON.stringify(launch.args),
+    ...(launch.env ? ["        env: " + JSON.stringify(launch.env)] : []),
     "",
   ].join(eol);
   // Append without rewriting existing comments, expressions, or plugin settings.
@@ -181,14 +213,52 @@ function addHarnessEntry(text: string, launch: { command: string; args: string[]
   return updated;
 }
 
-/** Add only a missing review-hub entry. Existing entries, comments and settings survive. */
-export function addMcpEntry(agent: DetectedAgent, original: string, platform: NodeJS.Platform): string | undefined {
+function tomlEnvironment(env: Record<string, string>): string {
+  return "{ " + Object.entries(env).map(([key, value]) => JSON.stringify(key) + " = " + JSON.stringify(value)).join(", ") + " }";
+}
+
+function upgradeTomlLaunch(text: string, entry: Record<string, unknown>, launch: McpLaunch): string | undefined {
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(eol);
+  const start = lines.findIndex(line => /^\s*\[mcp_servers\.(?:"review-hub"|'review-hub'|review-hub)\]\s*(?:#.*)?$/.test(line));
+  if (start < 0) return undefined;
+  let end = lines.findIndex((line, index) => index > start && /^\s*\[/.test(line));
+  if (end < 0) end = lines.length;
+  const fields: Record<string, unknown> = { command: launch.command, args: launch.args };
+  if (launch.env && !Object.entries(launch.env).every(([key, value]) => isRecord(entry.env) && entry.env[key] === value)) {
+    // Environment subtables or multiline values belong to a custom layout; leave intact.
+    if (entry.env !== undefined && !lines.slice(start + 1, end).some(line => /^\s*env\s*=/.test(line))) return undefined;
+    fields.env = { ...(isRecord(entry.env) ? entry.env : {}), ...launch.env };
+  }
+  for (const [key, value] of Object.entries(fields)) {
+    const index = lines.findIndex((line, index) => index > start && index < end && new RegExp("^\\s*" + key + "\\s*=").test(line));
+    const serialized = key === "env" ? tomlEnvironment(value as Record<string, string>) : JSON.stringify(value);
+    if (index < 0) { lines.splice(end, 0, key + " = " + serialized); end++; continue; }
+    // Single-line TOML parsing detects multiline arrays/strings before replacing anything.
+    try { parseToml(lines[index]); } catch { return undefined; }
+    let quoted = ""; let comment = -1;
+    for (let i = lines[index].indexOf("=") + 1; i < lines[index].length; i++) {
+      const char = lines[index][i];
+      if (quoted === '"' && char === "\\") { i++; continue; }
+      if (quoted && char === quoted) quoted = "";
+      else if (!quoted && (char === '"' || char === "'")) quoted = char;
+      else if (!quoted && char === "#") { comment = i; break; }
+    }
+    lines[index] = lines[index].slice(0, lines[index].indexOf("=") + 1) + " " + serialized + (comment >= 0 ? " " + lines[index].slice(comment) : "");
+  }
+  const updated = lines.join(eol);
+  try { parseToml(updated); } catch { return undefined; }
+  return updated;
+}
+
+/** Add a missing entry or upgrade a known generated launch; keep custom/disabled entries. */
+export function addMcpEntry(agent: DetectedAgent, original: string, platform: NodeJS.Platform, runtime?: McpRuntimeOptions): string | undefined {
   const bom = original.startsWith("\uFEFF") ? "\uFEFF" : "";
   const text = original.slice(bom.length);
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const launch = launchCommand(platform);
+  const launch: McpLaunch = runtime?.launch ?? launchCommand(platform);
   if (agent.format === "yaml") {
-    const updated = addHarnessEntry(text, launch, eol);
+    const updated = addHarnessEntry(text, launch, eol, runtime, platform);
     return updated === undefined ? undefined : bom + updated;
   }
   if (agent.format === "toml") {
@@ -196,8 +266,16 @@ export function addMcpEntry(agent: DetectedAgent, original: string, platform: No
     try { parsed = parseToml(text); } catch { throw new Error("Invalid TOML; configuration left unchanged."); }
     const servers = parsed[agent.section];
     if (servers !== undefined && !isRecord(servers)) throw new Error("MCP configuration must be a table; left unchanged.");
-    if (isRecord(servers) && Object.hasOwn(servers, "review-hub")) return undefined;
-    const addition = ["[mcp_servers.\"review-hub\"]", "command = " + JSON.stringify(launch.command), "args = " + JSON.stringify(launch.args), ""].join(eol);
+    if (isRecord(servers) && Object.hasOwn(servers, "review-hub")) {
+      if (!runtime) return undefined;
+      const entry = servers["review-hub"];
+      if (!isRecord(entry) || (!sameLaunch(entry, launch) && !canUpgradeLaunch(entry, runtime, platform))) { runtime.onCustom?.(); return undefined; }
+      if (sameLaunch(entry, launch)) return undefined;
+      const updated = upgradeTomlLaunch(text, entry, launch);
+      if (updated === undefined) runtime.onCustom?.();
+      return updated === undefined ? undefined : bom + updated;
+    }
+    const addition = ["[mcp_servers.\"review-hub\"]", "command = " + JSON.stringify(launch.command), "args = " + JSON.stringify(launch.args), ...(launch.env ? ["env = " + tomlEnvironment(launch.env)] : []), ""].join(eol);
     const updated = text + (text && !text.endsWith("\n") ? eol : "") + (text ? eol : "") + addition;
     try { parseToml(updated); } catch { throw new Error("This TOML layout cannot be extended automatically; configuration left unchanged."); }
     return bom + updated;
@@ -207,9 +285,26 @@ export function addMcpEntry(agent: DetectedAgent, original: string, platform: No
   if (errors.length || (parsed !== undefined && !isRecord(parsed))) throw new Error("Invalid JSON/JSONC object; configuration left unchanged.");
   const servers = isRecord(parsed) ? parsed[agent.section] : undefined;
   if (servers !== undefined && !isRecord(servers)) throw new Error("MCP configuration must be an object; left unchanged.");
-  if (isRecord(servers) && Object.hasOwn(servers, "review-hub")) return undefined;
+  if (isRecord(servers) && Object.hasOwn(servers, "review-hub")) {
+    if (!runtime) return undefined;
+    const entry = servers["review-hub"];
+    const opencode = agent.id === "opencode";
+    if (!isRecord(entry) || (!sameLaunch(entry, launch, opencode) && !canUpgradeLaunch(entry, runtime, platform))) { runtime.onCustom?.(); return undefined; }
+    if (sameLaunch(entry, launch, opencode)) return undefined;
+    let updated = text;
+    const envKey = opencode ? "environment" : "env";
+    if (entry[envKey] !== undefined && !isRecord(entry[envKey])) { runtime.onCustom?.(); return undefined; }
+    for (const [key, value] of Object.entries({ command: opencode ? [launch.command, ...launch.args] : launch.command,
+      ...(!opencode ? { args: launch.args } : {}),
+      ...(launch.env ? { [envKey]: { ...(isRecord(entry[envKey]) ? entry[envKey] : {}), ...launch.env } } : {}),
+    })) {
+      updated = applyEdits(updated, modify(updated, [agent.section, "review-hub", key], value,
+        { formattingOptions: { insertSpaces: !/\n\t/.test(text), tabSize: text.match(/\n( +)\S/)?.[1].length ?? 2, eol } }));
+    }
+    return bom + updated;
+  }
   const entry = agent.id === "opencode"
-    ? { type: "local", command: [launch.command, ...launch.args], enabled: true }
+    ? { type: "local", command: [launch.command, ...launch.args], ...(launch.env ? { environment: launch.env } : {}), enabled: true }
     : agent.id === "claudeCode" ? { type: "stdio", ...launch }
     : agent.id === "cline" || agent.id === "rooCode" ? { ...launch, disabled: false }
     : launch;
@@ -229,11 +324,16 @@ export async function registerAgent(
   agent: DetectedAgent,
   platform: NodeJS.Platform,
   enabled: () => boolean = () => true,
+  runtime?: McpRuntimeOptions,
 ): Promise<RegistrationResult> {
   const base = { id: agent.id, label: agent.label, configPath: agent.configPath };
   try {
-    const status = await updateConfigurationFile(agent.configPath, original => addMcpEntry(agent, original, platform), enabled);
-    return { ...base, status: status === "changed" ? "registered" : status === "unchanged" ? "already-configured" : "disabled" };
+    let customMcp = false;
+    const status = await updateConfigurationFile(agent.configPath, original => addMcpEntry(agent, original, platform,
+      runtime ? { ...runtime, onCustom: () => { customMcp = true; } } : undefined), enabled);
+    return { ...base, status: status === "changed" ? "registered" : status === "unchanged" ? "already-configured" : "disabled",
+      ...(customMcp ? { customMcp: true, message: "Custom, disabled or nonstandard Review Hub configuration kept. Verify it exposes propose_edit, propose_write, propose_delete and propose_changes; reconnect/update its server if tools are missing." } : {}) };
+
   } catch (error) {
     return { ...base, status: "error", message: error instanceof Error ? error.message : "Could not update agent configuration." };
   }
@@ -247,7 +347,11 @@ export async function registerDetectedAgents(
   const agents = await detectAgents(environment);
   const results: RegistrationResult[] = [];
   for (const agent of agents) {
-    const result = await registerAgent(agent, environment.platform, () => enabled(agent.id));
+    const result = await registerAgent(agent, environment.platform, () => enabled(agent.id), options.mcpLaunch ? {
+      launch: options.mcpLaunch,
+      legacyPaths: [path.join(environment.homeDir, ".review-hub", "bin", "mcp-server.cjs"),
+        ...(agent.id === "ohMyPi" ? [path.join(path.dirname(agent.configPath), "review-hub", "mcp-server.cjs")] : [])],
+    } : undefined);
     if (agent.id === "claudeCode" && (result.status === "registered" || result.status === "already-configured") && options.claudeInstructions?.()) {
       result.instructions = await installClaudeInstructions(
         environment.env.CLAUDE_CONFIG_DIR || path.join(environment.homeDir, ".claude"),

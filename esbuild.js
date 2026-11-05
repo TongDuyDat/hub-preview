@@ -56,6 +56,9 @@ function syncArtifacts() {
     fs.chmodSync(path.join(mcpBinDir, "mcp-server.cjs"), 0o755);
   } catch {}
 
+  // Ship exactly the same MCP implementation with VSIX: no stale global/npm dependency.
+  fs.copyFileSync(path.join(__dirname, "dist", "mcp-server.cjs"), path.join(__dirname, "vscode", "dist", "mcp-server.cjs"));
+
   // Sync hub-server.cjs to root dist/ for JetBrains and backwards compatibility
   const distDir = path.join(__dirname, "dist");
   fs.mkdirSync(distDir, { recursive: true });
