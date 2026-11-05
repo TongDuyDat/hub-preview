@@ -1,13 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.3.5
+
+- Add per-agent MCP setup guides in English and Vietnamese, with manual configuration examples and verification steps.
+- Include MCP setup instructions in the Marketplace README under publisher DuyDatTong.
 
 - Bundle the shared MCP runtime for supported agent auto-registration.
 - Apply proposals to disk immediately; Accept keeps code and Reject restores selected blocks.
 - Send persistent review decisions to agents and require rereading affected files before further proposals.
 - Display full project-relative file paths and clarify review actions.
 - Add English-first documentation, Vietnamese translations, installation and publishing guides.
-
 
 ## 0.3.4
 

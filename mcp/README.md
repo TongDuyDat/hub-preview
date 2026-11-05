@@ -10,6 +10,9 @@ The VS Code extension includes this server. Enable **Review Hub: Auto Register M
 
 See the [installation guide](https://github.com/TongDuyDat/hub-preview/blob/main/docs/INSTALLATION.md) ([tiếng Việt](https://github.com/TongDuyDat/hub-preview/blob/main/docs/INSTALLATION.vi.md)) for supported clients, optional hooks and troubleshooting.
 
+
+[Set up MCP for each agent](https://github.com/TongDuyDat/hub-preview/blob/main/docs/MCP_SETUP.md) · [Setup MCP từng agent — tiếng Việt](https://github.com/TongDuyDat/hub-preview/blob/main/docs/MCP_SETUP.vi.md)
+
 ## Standalone npm setup
 
 Requires **Node.js 22.13 or newer** and Review Hub running in the same environment. Configure a stdio MCP server using your client's format; for JSON clients:

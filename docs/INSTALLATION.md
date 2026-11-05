@@ -16,6 +16,8 @@ For SSH, WSL or containers, install/enable Review Hub in the environment that ow
 
 ## Connect agents
 
+See [agent-by-agent MCP setup](MCP_SETUP.md) for configuration paths, manual examples and verification for all 11 supported agents.
+
 1. Open your project and run **Review Hub: Scan and Register Detected Agents**. Enable registration when prompted, or use **Enable and Scan** on first launch.
 2. In Settings, enable **Review Hub: Auto Register MCP** and select the relevant **Review Hub: Agents** checkboxes. Auto Register MCP is off by default and must be enabled on each machine; an agent checkbox alone is insufficient.
 3. Inspect the scan results. Only detected, selected agents are configured. Supported adapters: Claude Code, Codex, Cursor, Windsurf, OpenCode, Cline, Roo Code, Gemini CLI, Antigravity, DeepSeek Harness and Oh My Pi.

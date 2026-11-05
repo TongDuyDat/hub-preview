@@ -16,6 +16,8 @@ Với SSH, WSL hoặc container, cài/bật Review Hub trong môi trường ch�
 
 ## Kết nối agent
 
+Xem [setup MCP cho từng agent](MCP_SETUP.vi.md) để biết đường dẫn cấu hình, mẫu thủ công và cách kiểm tra của cả 11 agent được hỗ trợ.
+
 1. Mở dự án và chạy **Review Hub: Scan and Register Detected Agents**. Bật đăng ký khi được hỏi; hoặc chọn **Enable and Scan** ở lần mở đầu tiên.
 2. Trong Settings, bật **Review Hub: Auto Register MCP** và tích các mục **Review Hub: Agents** cần dùng. Auto Register MCP mặc định tắt, phải bật riêng trên mỗi máy; chỉ tích agent là chưa đủ.
 3. Kiểm tra kết quả quét. Chỉ agent được phát hiện và được chọn mới được cấu hình. Các adapter hỗ trợ: Claude Code, Codex, Cursor, Windsurf, OpenCode, Cline, Roo Code, Gemini CLI, Antigravity, DeepSeek Harness và Oh My Pi.

@@ -36,10 +36,10 @@ Chạy trong `vscode/`:
 
 ```sh
 npx vsce login DuyDatTong
-npx vsce publish --packagePath ./review-hub-vscode-0.3.4.vsix
+npx vsce publish --packagePath ./review-hub-vscode-0.3.5.vsix
 ```
 
-Thay tên file ví dụ bằng gói vừa build. Chỉ dùng 0.3.4 trên Marketplace nếu chưa từng phát hành version đó ở đây. Việc tạo tài khoản, nhập thông tin đăng nhập và đăng bản phát hành được thực hiện thủ công; build VSIX chưa phải publish.
+Thay tên file ví dụ bằng gói vừa build. Chỉ dùng 0.3.5 trên Marketplace nếu chưa từng phát hành version đó ở đây; nếu đã có, tăng version tiếp. Việc tạo tài khoản, nhập thông tin đăng nhập và đăng bản phát hành được thực hiện thủ công; build VSIX chưa phải publish.
 
 ## GitHub Releases
 
@@ -56,7 +56,7 @@ npm login
 npm whoami
 npm run build:mcp
 npm run pack:mcp
-npm publish ./mcp/review-hub-mcp-0.3.4.tgz --access public
+npm publish ./mcp/review-hub-mcp-0.3.5.tgz --access public
 ```
 
 Thay tên file bằng tarball mới và kiểm tra nội dung trước khi publish. Nếu tên package chưa có người dùng, lần publish thành công đầu tiên sẽ đăng ký tên đó; nếu đã có, bạn cần quyền sở hữu hoặc đổi tên. Không thể ghi đè một version npm đã phát hành, nên mỗi lần cần version mới. Không đưa thông tin đăng nhập npm vào repository.

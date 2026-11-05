@@ -24,11 +24,50 @@ Requires VS Code **1.103.0 or newer**.
 
 The extension bundles its MCP server; normal setup needs **no separate npm install or Node.js runtime**. Optional Claude hooks require Node.js on PATH.
 
+[Set up MCP for each agent](https://github.com/TongDuyDat/hub-preview/blob/main/docs/MCP_SETUP.md) · [Setup MCP từng agent — tiếng Việt](https://github.com/TongDuyDat/hub-preview/blob/main/docs/MCP_SETUP.vi.md)
+
 ## Agent support
 
 Auto-registration supports Claude Code, Codex, Cursor, Windsurf, OpenCode, Cline, Roo Code, Gemini CLI, Antigravity, DeepSeek Harness and Oh My Pi. Existing custom MCP entries are preserved and reported.
 
 Instructions guide agents to Hub. Optional **Require Review** hooks enforce tool routing for **Claude Code and Oh My Pi on Linux/macOS**. They do not cover every client or provide an OS sandbox. In this mode, run builds/tests yourself in a terminal.
+
+## Manual MCP setup
+
+For the bundled server, run **Review Hub: Copy MCP Config for AI Tools** on the same machine as the agent. Use all copied launch fields (`command`, `args` and optional `env`) in your client's MCP configuration. Keep `ELECTRON_RUN_AS_NODE` if provided. Prefer Scan for automatic format conversion.
+
+| Agent | Configuration targeted by auto-registration |
+| --- | --- |
+| Claude Code | `~/.claude.json` (`mcpServers`) |
+| Codex | `~/.codex/config.toml` (`mcp_servers`) |
+| Cursor | `~/.cursor/mcp.json` (`mcpServers`) |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` (`mcpServers`) |
+| OpenCode | `~/.config/opencode/opencode.json` or existing `.jsonc` (`mcp`) |
+| Cline | Active profile's `globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json` |
+| Roo Code | Active profile's `globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` |
+| Gemini CLI | `~/.gemini/settings.json` (`mcpServers`) |
+| Antigravity | `~/.gemini/antigravity/mcp_config.json` (`mcpServers`) |
+| DeepSeek Harness | `~/.dsh/cordis.patch.yml` (Cordis YAML patch sequence) |
+| Oh My Pi | `~/.omp/agent/mcp.json` (`mcpServers`; profile overrides supported) |
+
+Paths refer to the extension host's user home and active profile. Environment overrides can change these locations; check the actual path printed by Scan. Merge entries with existing settings rather than replacing the whole file.
+
+An **optional standalone npm** entry for JSON clients is shown below. This alternative requires Node.js **22.13+**, npm/npx on the agent's PATH, and a running Hub in the same environment. Normal bundled setup does not need it.
+
+```json
+{
+  "mcpServers": {
+    "review-hub": {
+      "command": "npx",
+      "args": ["-y", "review-hub-mcp"]
+    }
+  }
+}
+```
+
+Codex uses TOML, OpenCode uses a command array, and DeepSeek Harness uses YAML. See the [agent-by-agent guide](https://github.com/TongDuyDat/hub-preview/blob/main/docs/MCP_SETUP.md) for their exact examples, Windows launch options and profile handling.
+
+After configuring MCP, reconnect the agent, install the Hub instructions and ask it to create a small test file **through Hub proposal tools**. A `staged_for_review` result and an entry in **Review Hub → Changes** confirm the review flow. Connected status alone does not ensure that the agent uses Hub instead of native Edit/Write/Bash.
 
 ## Useful commands
 

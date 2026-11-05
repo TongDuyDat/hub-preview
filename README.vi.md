@@ -35,6 +35,7 @@ Hướng dẫn giúp agent dùng tool của Hub. Tùy chọn **Require Review** 
 
 | Nội dung | English | Tiếng Việt |
 | --- | --- | --- |
+| Agent-specific MCP setup | [MCP setup](docs/MCP_SETUP.md) | [Setup từng agent](docs/MCP_SETUP.vi.md) |
 | Cài đặt, kết nối agent, xử lý lỗi | [Installation](docs/INSTALLATION.md) | [Cài đặt](docs/INSTALLATION.vi.md) |
 | Extension VS Code | [Extension README](vscode/README.md) | [README extension](vscode/README.vi.md) |
 | Phát hành Marketplace, GitHub Releases và npm | [Publishing](PUBLISHING.md) | [Phát hành](PUBLISHING.vi.md) |
