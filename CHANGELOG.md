@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6
+
+- Share the latest MCP workflow across server initialization, copied project rules and managed Claude instructions.
+- Cover batch proposals, file deletion, workspace routing, review feedback and full rereads after human decisions.
+- Document instruction refresh and the existing Auto Open Diff setting; preserve current editor behavior.
+
 ## 0.3.5
 
 - Add per-agent MCP setup guides in English and Vietnamese, with manual configuration examples and verification steps.

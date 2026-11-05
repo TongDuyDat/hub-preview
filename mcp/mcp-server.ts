@@ -1,3 +1,4 @@
+import { REVIEW_HUB_WORKFLOW } from "../core/src/agent-instructions";
 import { ReviewFeedback, REVIEW_FEEDBACK_INSTRUCTION } from "./review-feedback";
 /**
  * Thin stdio MCP server. Harnesses (Claude Code, opencode, dsh, Cline, Roo) spawn
@@ -210,7 +211,7 @@ interface TypedServer {
   sendLoggingMessage(params: { level: "info"; logger: string; data: unknown }): Promise<void>;
 }
 
-const server = new McpServer({ name: "review-hub", version: "0.3.0" }, { capabilities: { logging: {} } }) as unknown as TypedServer;
+const server = new McpServer({ name: "review-hub", version: "0.3.0" }, { capabilities: { logging: {} }, instructions: REVIEW_HUB_WORKFLOW }) as unknown as TypedServer;
 
 function ok(data: unknown): ToolResult {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };

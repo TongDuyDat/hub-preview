@@ -36,10 +36,10 @@ From `vscode/`:
 
 ```sh
 npx vsce login DuyDatTong
-npx vsce publish --packagePath ./review-hub-vscode-0.3.5.vsix
+npx vsce publish --packagePath ./review-hub-vscode-0.3.6.vsix
 ```
 
-Replace the example filename with the fresh package. Version 0.3.5 must not already be published on Marketplace; use a higher version if it is. Account creation, credential entry and publication are manual actions; building a VSIX does not publish it.
+Replace the example filename with the fresh package. Version 0.3.6 must not already be published on Marketplace; use a higher version if it is. Account creation, credential entry and publication are manual actions; building a VSIX does not publish it.
 
 ## GitHub Releases
 
@@ -56,7 +56,7 @@ npm login
 npm whoami
 npm run build:mcp
 npm run pack:mcp
-npm publish ./mcp/review-hub-mcp-0.3.5.tgz --access public
+npm publish ./mcp/review-hub-mcp-0.3.6.tgz --access public
 ```
 
 Replace the filename with the new tarball and inspect it before publishing. If the package name is unclaimed, the first successful publish registers it; if claimed, you need ownership or a different name. npm versions are immutable, so use a new version for each release. Keep npm credentials out of the repository.

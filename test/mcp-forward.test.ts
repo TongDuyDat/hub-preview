@@ -63,11 +63,17 @@ function spawnMcp(env: Record<string, string>) {
 }
 
 async function init(conn: ReturnType<typeof spawnMcp>) {
-  await conn.call("initialize", {
+  const response = await conn.call("initialize", {
     protocolVersion: "2024-11-05",
     capabilities: {},
     clientInfo: { name: "test", version: "1" },
   });
+  assert.equal(response.error, undefined);
+  const result = response.result as { instructions?: string };
+  assert.equal(typeof result.instructions, "string", "MCP clients receive workflow instructions at initialization");
+  for (const guidance of ["propose_changes", "delete:true", "get_review_updates", "review_decisions_changed", "fully reread", "Require Review", "Auto Open Diff"]) {
+    assert.ok(result.instructions!.includes(guidance), `Missing MCP guidance: ${guidance}`);
+  }
   conn.notify("notifications/initialized");
 }
 

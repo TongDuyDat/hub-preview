@@ -146,6 +146,16 @@ Select **Agents: Oh My Pi** and scan. The default is `~/.omp/agent/mcp.json`; an
 
 For manual setup, merge the standard JSON entry into the active profile's config. Start a new OMP session. Some configurations expose MCP through `xd://`: discover/read the device schema, then invoke the actual Hub device with its documented JSON. Do not assume a fixed device name. Optional Require Review hooks support OMP on Linux/macOS; see the [installation guide](INSTALLATION.md#optional-require-review-through-hooks).
 
+## Refresh instructions after an extension update
+
+1. Run **Review Hub: Scan and Register Detected Agents** to update the bundled server for selected agents.
+2. Run **Review Hub: Install agent instructions** again to refresh managed project rules, or copy the updated **Copy AI Agent Rules to Clipboard** block into the agent's rules file. Claude's managed user-level instructions also refresh on an enabled scan when **Claude: Install Instructions** is on.
+3. Reconnect MCP or start a new agent session. The server now sends the shared workflow in its MCP initialization response; whether a client uses those instructions depends on the client. Existing sessions do not reload rules automatically.
+
+The workflow covers multi-file proposals and deletion, partial review feedback, cursor replay, full rereads after human decisions, workspace selection and Require Review restrictions. Copied/project/Claude rules and the server use the same workflow source.
+
+To avoid automatic diff tabs, turn off **Review Hub: Auto Open Diff** (`"review-hub.autoOpenDiff": false`) and reload that VS Code window. You can still review from the Hub panel or select a file with pending review. This preference does not change the MCP tools or how proposals are applied to disk.
+
 ## Confirm the agent actually uses Hub
 
 Send a small request such as:

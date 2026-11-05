@@ -146,6 +146,16 @@ Tích **Agents: Oh My Pi** rồi Scan. Mặc định là `~/.omp/agent/mcp.json`
 
 Nếu làm thủ công, gộp mẫu JSON chung vào cấu hình profile đang dùng. Mở phiên OMP mới. Một số cấu hình đưa MCP qua `xd://`: khám phá/đọc schema device rồi gọi đúng device Hub bằng JSON được quy định; không giả định tên device cố định. Hook Require Review tùy chọn hỗ trợ OMP trên Linux/macOS; xem [hướng dẫn cài đặt](INSTALLATION.vi.md).
 
+## Cập nhật hướng dẫn sau khi nâng cấp extension
+
+1. Chạy **Review Hub: Scan and Register Detected Agents** để cập nhật server đi kèm cho các agent được chọn.
+2. Chạy lại **Review Hub: Install agent instructions** để cập nhật khối hướng dẫn của dự án, hoặc dùng **Copy AI Agent Rules to Clipboard** rồi thay khối hướng dẫn trong file quy tắc của agent. Hướng dẫn Claude cấp người dùng cũng được cập nhật khi quét nếu bật **Claude: Install Instructions**.
+3. Kết nối lại MCP hoặc mở phiên agent mới. Server gửi quy trình dùng chung trong phản hồi khởi tạo MCP; việc sử dụng nội dung đó phụ thuộc client. Phiên đang chạy không tự nạp lại file hướng dẫn.
+
+Quy trình bao gồm đề xuất nhiều file và xóa file, quyết định review từng phần, đọc lịch sử bằng cursor, đọc lại toàn bộ file sau quyết định của người dùng, chọn workspace và giới hạn Require Review. Các mẫu copy, hướng dẫn dự án/Claude và MCP server dùng cùng một nguồn quy trình.
+
+Để không tự bật tab diff, tắt **Review Hub: Auto Open Diff** (`"review-hub.autoOpenDiff": false`) rồi reload cửa sổ VS Code đó. Vẫn có thể review từ panel Hub hoặc chọn file đang chờ duyệt. Tùy chọn này không thay đổi tool MCP hay cách áp dụng code xuống đĩa.
+
 ## Xác nhận agent thực sự dùng Hub
 
 Gửi một yêu cầu nhỏ, ví dụ:

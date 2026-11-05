@@ -1,6 +1,6 @@
 {
   "name": "review-hub-monorepo",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": true,
   "description": "Review Hub Monorepo: Core engine, VS Code extension, MCP server, and JetBrains plugin",
   "author": "Hung, Tong Duy Dat",

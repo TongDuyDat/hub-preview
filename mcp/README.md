@@ -30,6 +30,12 @@ Requires **Node.js 22.13 or newer** and Review Hub running in the same environme
 
 The npm release can lag repository builds; use the extension's bundled server for matching tool versions. For development, run `npm ci` and `npm run build:mcp` from the monorepo root. The npm package includes the built server and does not need a separate build after installation.
 
+## Agent workflow instructions
+
+The server sends workflow instructions in its MCP initialization response. The extension's copied/project rules and Claude's managed instructions use the same workflow source. It covers all proposal tools, deletion, workspace routing, per-file batch errors, review decision history, mandatory full rereads after feedback and strict-hook limitations.
+
+After updating the extension, scan to refresh the runtime, reinstall/copy agent rules, then reconnect MCP or start a new session. Client support for server instructions varies; keep project rules installed. See [refreshing instructions](https://github.com/TongDuyDat/hub-preview/blob/main/docs/MCP_SETUP.md#refresh-instructions-after-an-extension-update).
+
 ## Tool reference
 
 Client prefixes vary; discover the actual tools in your agent. Claude may require ToolSearch. Oh My Pi may expose tools through a discovered device schema.
