@@ -3,7 +3,7 @@
   "displayName": "Review Hub",
   "description": "Review AI code changes inline with per-block Accept/Reject and bundled MCP setup for coding agents.",
   "version": "0.3.4",
-  "publisher": "review-hub",
+  "publisher": "DuyDatTong",
   "license": "MIT",
   "preview": true,
   "author": "Hung, Tong Duy Dat",

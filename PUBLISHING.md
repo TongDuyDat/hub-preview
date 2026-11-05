@@ -21,12 +21,12 @@ Keep versions aligned in root, core, mcp and vscode package.json files and the l
 ## Register a VS Code Marketplace publisher
 
 1. Sign in with a Microsoft account at [Manage Publishers](https://marketplace.visualstudio.com/manage).
-2. Create a publisher. This project uses Publisher ID **review-hub**, matching `vscode/package.json`. Confirm you own that exact ID before publishing. If it is unavailable, choose an available ID and update the manifest before rebuilding.
+2. Create a publisher. This project uses Publisher ID **DuyDatTong**, matching `vscode/package.json`. Confirm you own that exact ID before publishing. If it is unavailable, choose an available ID and update the manifest before rebuilding.
 3. Complete the publisher's required profile/contact fields. A verified domain is optional for initial publishing.
 4. Under your publisher, choose **New extension → Visual Studio Code** and upload the newly built VSIX.
 5. Wait for validation, inspect the listing and test installation. For later versions, upload a new VSIX with a higher extension version.
 
-Once published, the extension identifier is `review-hub.review-hub-vscode`, and its listing URL will be `https://marketplace.visualstudio.com/items?itemName=review-hub.review-hub-vscode`. These are the expected identifiers, not confirmation of publication.
+Once published, the extension identifier is `DuyDatTong.review-hub-vscode`, and its listing URL will be `https://marketplace.visualstudio.com/items?itemName=DuyDatTong.review-hub-vscode`. These are the expected identifiers, not confirmation of publication.
 
 ### Optional CLI publishing
 
@@ -35,7 +35,7 @@ Create an Azure DevOps personal access token with **Marketplace: Manage** scope 
 From `vscode/`:
 
 ```sh
-npx vsce login review-hub
+npx vsce login DuyDatTong
 npx vsce publish --packagePath ./review-hub-vscode-0.3.4.vsix
 ```
 

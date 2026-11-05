@@ -21,12 +21,12 @@ Khi chuẩn bị phiên bản mới, đồng bộ version trong package.json c�
 ## Đăng ký publisher trên VS Code Marketplace
 
 1. Đăng nhập tài khoản Microsoft tại [Manage Publishers](https://marketplace.visualstudio.com/manage).
-2. Tạo publisher. Dự án dùng Publisher ID **review-hub**, khớp `vscode/package.json`. Xác nhận bạn sở hữu đúng ID này trước khi phát hành. Nếu ID đã có người dùng, chọn ID khác còn trống, sửa manifest rồi build lại.
+2. Tạo publisher. Dự án dùng Publisher ID **DuyDatTong**, khớp `vscode/package.json`. Xác nhận bạn sở hữu đúng ID này trước khi phát hành. Nếu ID đã có người dùng, chọn ID khác còn trống, sửa manifest rồi build lại.
 3. Điền thông tin hồ sơ/liên hệ bắt buộc. Chưa cần xác minh tên miền để phát hành lần đầu.
 4. Trong publisher, chọn **New extension → Visual Studio Code** và tải VSIX vừa build lên.
 5. Chờ kiểm tra, xem trang extension và thử cài. Các lần cập nhật sau cần VSIX có version cao hơn.
 
-Sau khi phát hành, ID extension là `review-hub.review-hub-vscode`, URL dự kiến là `https://marketplace.visualstudio.com/items?itemName=review-hub.review-hub-vscode`. Đây là định danh dự kiến, chưa phải xác nhận đã phát hành.
+Sau khi phát hành, ID extension là `DuyDatTong.review-hub-vscode`, URL dự kiến là `https://marketplace.visualstudio.com/items?itemName=DuyDatTong.review-hub-vscode`. Đây là định danh dự kiến, chưa phải xác nhận đã phát hành.
 
 ### Phát hành bằng CLI (tùy chọn)
 
@@ -35,7 +35,7 @@ Tạo personal access token trên Azure DevOps, chọn quyền **Marketplace: Ma
 Chạy trong `vscode/`:
 
 ```sh
-npx vsce login review-hub
+npx vsce login DuyDatTong
 npx vsce publish --packagePath ./review-hub-vscode-0.3.4.vsix
 ```
 
