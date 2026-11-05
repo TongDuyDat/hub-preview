@@ -20,6 +20,7 @@ interface Rpc {
 /** Spawn the bundled MCP server and drive it over stdio. */
 function spawnMcp(env: Record<string, string>) {
   const proc = spawn(process.execPath, [SERVER], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env } });
+  const notifications: Rpc[] = [];
   const pending = new Map<number, (msg: Rpc) => void>();
   let buffer = "";
   proc.stdout.on("data", (chunk: Buffer) => {
@@ -31,6 +32,7 @@ function spawnMcp(env: Record<string, string>) {
       if (!line) continue;
       try {
         const msg = JSON.parse(line) as Rpc;
+        if (msg.id === undefined && msg.method) notifications.push(msg);
         if (msg.id !== undefined && pending.has(msg.id)) {
           pending.get(msg.id)!(msg);
           pending.delete(msg.id);
@@ -57,7 +59,7 @@ function spawnMcp(env: Record<string, string>) {
   const notify = (method: string, params?: unknown) => {
     proc.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
   };
-  return { proc, call, notify };
+  return { proc, call, notify, notifications };
 }
 
 async function init(conn: ReturnType<typeof spawnMcp>) {
@@ -89,8 +91,8 @@ test("MCP server forwards propose_edit to a live hub", async () => {
     assert.ok(payload.changeId);
     assert.equal(payload.hunks, 1);
     assert.equal(payload.status, "staged_for_review");
-    // Review-then-apply: the edit is staged, not written. `read_file` returns it (see Task 2).
-    assert.equal(fs.readFileSync(path.join(workspace, "a.txt"), "utf8"), "hello world\n");
+    assert.equal(payload.applied, true);
+    assert.equal(fs.readFileSync(path.join(workspace, "a.txt"), "utf8"), "hello there\n");
   } finally {
     conn.proc.kill();
     await hub.stop();
@@ -107,6 +109,98 @@ test("MCP server fails fast with a clear error when the hub is down", async () =
     assert.match(result.content[0].text, /Review Hub|not running|hub/i);
   } finally {
     conn.proc.kill();
+  }
+});
+
+test("propose_changes composes staged edits, creates/deletes files and reports per-file failures", async () => {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "rh-batch-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-batch-ws-"));
+  fs.writeFileSync(path.join(workspace, "a.txt"), "hello\r\nworld\r\n");
+  fs.writeFileSync(path.join(workspace, "remove.txt"), "remove me\n");
+  const hub = new HubServer({ baseDir, token: "tok", excludeGlobs: [] });
+  const addr = await hub.start(0);
+  const conn = spawnMcp({ REVIEW_HUB_URL: addr.url, REVIEW_HUB_TOKEN: "tok", REVIEW_HUB_WORKSPACE: workspace });
+  const call = async (name: string, args: unknown) => {
+    const response = await conn.call("tools/call", { name, arguments: args });
+    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
+    return { result, payload: JSON.parse(result.content[0].text) };
+  };
+  try {
+    await init(conn);
+    const { payload: batch } = await call("propose_changes", { changes: [
+      { path: ".\\a.txt", edits: [
+        { old_string: "hello\nworld", new_string: "hi\nworld" },
+        { old_string: "world", new_string: "there" },
+      ] },
+      { path: "new.txt", content: "created\n" },
+      { path: "remove.txt", delete: true },
+      { path: "a.txt", content: "duplicate must not overwrite" },
+      { path: "../outside.txt", content: "must not escape" },
+      { path: "missing.txt", edits: [{ old_string: "absent", new_string: "x" }] },
+    ] });
+    assert.equal(batch.status, "partial_success");
+    assert.deepEqual(batch.results.map((r: any) => r.status), [
+      "staged_for_review", "staged_for_review", "staged_for_review", "error", "error", "error",
+    ]);
+    assert.equal(batch.results[0].path, "a.txt");
+    assert.match(batch.results[0].context.excerpts[0].content, /hi\nthere/);
+    assert.match(batch.results[3].message, /Duplicate/);
+    assert.equal(batch.results[0].applied, true);
+    assert.equal(fs.readFileSync(path.join(workspace, "a.txt"), "utf8"), "hi\r\nthere\r\n");
+    assert.equal(fs.readFileSync(path.join(workspace, "new.txt"), "utf8"), "created\n");
+    assert.equal(fs.existsSync(path.join(workspace, "remove.txt")), false);
+    assert.equal((await call("read_file", { path: "a.txt" })).payload.content, "hi\nthere\n");
+
+    // Failed second edit must not stage the successful first edit for this file.
+    const { payload: failed } = await call("propose_changes", { changes: [
+      { path: "a.txt", edits: [
+        { old_string: "hi", new_string: "bad partial" },
+        { old_string: "missing", new_string: "x" },
+      ] },
+    ] });
+    assert.equal(failed.status, "error");
+    assert.equal(failed.results[0].failed_edit, 1);
+    assert.equal(failed.results[0].code, "match_not_found");
+    assert.match(failed.results[0].context.excerpts[0].content, /hi\nthere/);
+    assert.equal((await call("read_file", { path: "a.txt" })).payload.content, "hi\nthere\n");
+
+    const { payload: followup } = await call("propose_changes", { include_context: false, changes: [
+      { path: "a.txt", edits: [{ old_string: "there", new_string: "again" }] },
+      { path: "new.txt", content: "created\n" },
+    ] });
+    assert.equal(followup.status, "staged_for_review");
+    assert.equal(followup.results[0].context, undefined);
+    assert.equal(followup.results[1].status, "unchanged");
+    assert.equal((await call("read_file", { path: "a.txt" })).payload.content, "hi\nagain\n");
+  } finally {
+    conn.proc.kill();
+    await hub.stop();
+  }
+});
+
+test("propose_changes rejects invalid operations before staging any file", async () => {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "rh-batch-invalid-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-batch-invalid-ws-"));
+  const hub = new HubServer({ baseDir, token: "tok", excludeGlobs: [] });
+  const addr = await hub.start(0);
+  const conn = spawnMcp({ REVIEW_HUB_URL: addr.url, REVIEW_HUB_TOKEN: "tok", REVIEW_HUB_WORKSPACE: workspace });
+  try {
+    await init(conn);
+    for (const change of [
+      { path: "a.txt" },
+      { path: "a.txt", content: "x", delete: true },
+      { path: "a.txt", edits: [] },
+      { path: "a.txt", edits: [{ old_string: "", new_string: "x" }] },
+    ]) {
+      const response = await conn.call("tools/call", { name: "propose_changes", arguments: { changes: [
+        { path: "valid.txt", content: "must not stage" }, change,
+      ] } });
+      assert.equal((response.result as { isError?: boolean }).isError, true);
+      assert.equal(hub.store.findChangeByPath(workspace, "valid.txt"), undefined);
+    }
+  } finally {
+    conn.proc.kill();
+    await hub.stop();
   }
 });
 
@@ -316,4 +410,53 @@ test("resources and prompts are registered and callable", async () => {
     conn.proc.kill();
     await hub.stop();
   }
+});
+
+test("review decisions reach MCP logs and tool responses; stale edits require full file reads", async () => {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "rh-feedback-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-feedback-ws-"));
+  const initial = Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n") + "\n";
+  fs.writeFileSync(path.join(workspace, "a.ts"), initial);
+  const hub = new HubServer({ baseDir, token: "tok", mcpOnly: true });
+  const addr = await hub.start();
+  const conn = spawnMcp({ REVIEW_HUB_URL: addr.url, REVIEW_HUB_TOKEN: "tok", REVIEW_HUB_WORKSPACE: workspace });
+  const invoke = async (name: string, args: unknown) => {
+    const response = await conn.call("tools/call", { name, arguments: args });
+    const result = response.result as { isError?: boolean; content: Array<{ text: string }> };
+    return { result, payload: JSON.parse(result.content[0].text) };
+  };
+  try {
+    await init(conn);
+    const { payload } = await invoke("propose_write", { path: "a.ts", content: initial.replace("line 2\n", "first changed\n").replace("line 24\n", "last changed\n") });
+    const cs = hub.store.findById(payload.changeId)!;
+    assert.equal(cs.hunks.length, 2);
+    hub.store.accept(cs.id, [cs.hunks[0].id]);
+    hub.store.reject(cs.id, [cs.hunks[1].id]);
+    const deadline = Date.now() + 5000;
+    while (!conn.notifications.some(message => message.method === "notifications/message") && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+    const notification = conn.notifications.find(message => message.method === "notifications/message")!;
+    assert.ok(notification, "MCP advisory notification received without a model prompt");
+    const log = notification.params as { data: { type: string; events: unknown[] } };
+    assert.equal(log.data.type, "review_decisions"); assert.equal(log.data.events.length, 2);
+    const blocked = await invoke("propose_edit", { path: "a.ts", old_string: "line 24", new_string: "retry rejected" });
+    assert.equal(blocked.result.isError, true); assert.equal(blocked.payload.code, "review_decisions_changed");
+    assert.equal(blocked.payload.review_updates[0].events.length, 2, "logs did not consume feedback");
+    assert.match(fs.readFileSync(path.join(workspace, "a.ts"), "utf8"), /line 24/);
+    await invoke("read_file", { path: "a.ts", start_line: 1, end_line: 2 });
+    assert.equal((await invoke("propose_edit", { path: "a.ts", old_string: "line 24", new_string: "retry rejected" })).payload.code, "review_decisions_changed");
+    const read = await invoke("read_file", { path: "a.ts" });
+    assert.match(read.payload.content, /first changed/); assert.match(read.payload.content, /line 24/);
+    const next = await invoke("propose_edit", { path: "a.ts", old_string: "line 10", new_string: "independent follow-up" });
+    assert.equal(next.result.isError, undefined);
+    const history = await invoke("get_review_updates", { workspace, limit: 1 });
+    assert.equal(history.payload.events.length, 1); assert.equal(history.payload.hasMore, true);
+    const final = await invoke("get_review_updates", { workspace, after: history.payload.cursor });
+    assert.equal(final.payload.events.length, 1); assert.equal(final.payload.events[0].decision, "rejected");
+    assert.equal(final.payload.events[0].resolved, true);
+    assert.equal((await invoke("get_review_updates", { workspace, after: final.payload.cursor })).payload.events.length, 0);
+    const forbidden = await fetch(addr.url + "/review/events?workspace=" + encodeURIComponent(workspace));
+    assert.equal(forbidden.status, 401);
+    const badLimit = await fetch(addr.url + "/review/events?workspace=" + encodeURIComponent(workspace) + "&limit=200", { headers: { authorization: "Bearer tok" } });
+    assert.equal(badLimit.status, 400);
+  } finally { conn.proc.kill(); await hub.stop(); }
 });

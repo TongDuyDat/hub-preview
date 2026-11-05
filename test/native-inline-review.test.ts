@@ -45,7 +45,8 @@ test("review opens in the native editor with old/new rows and a filename for lan
     assert.equal(vscode.__panels.length, before);
     assert.ok(shown.document.getText().startsWith("old\nnew\nextra\n"));
     assert.equal(shown.document.isDirty, false);
-    assert.equal(fs.readFileSync(file, "utf8"), old);
+    assert.equal(cs.baseline, old);
+    assert.equal(fs.readFileSync(file, "utf8"), cs.proposed);
     const buttons = lenses.provideCodeLenses(shown.document as never);
     assert.equal(buttons.filter(l => l.command?.command === "review-hub.acceptHunk").length, 3);
     assert.equal(buttons.filter(l => l.command?.command === "review-hub.rejectHunk").length, 3);
@@ -198,7 +199,8 @@ test("selecting the original file reveals the pending diff in the same editor gr
     assert.equal(review.options.preserveFocus, false);
     assert.equal(vscode.window.activeTextEditor, review);
     assert.equal(review.document.getText(), buildStagedText(cs));
-    assert.equal(fs.readFileSync(file, "utf8"), old);
+    assert.equal(cs.baseline, old);
+    assert.equal(fs.readFileSync(file, "utf8"), cs.proposed);
 
     store.accept(cs.id, [cs.hunks[0].id]);
     await view.refresh(cs.id);

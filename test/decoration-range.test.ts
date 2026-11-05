@@ -126,10 +126,12 @@ test("a rejected hunk below an accepted one anchors in the baseline frame", () =
 
 // ---- the fs frame (the agent wrote the file directly) -------------------------
 
-test("diskFrame maps mcp to the baseline frame and fs to the proposed frame", () => {
+test("diskFrame uses proposed code for new MCP writes and baseline for legacy unapplied proposals", () => {
   // The single source of truth for the frame rule, shared by settle, the decorations and
   // the CodeLens, so the three can never drift apart.
-  assert.equal(diskFrame("mcp"), "baseline", "a staged change leaves the disk on the baseline");
+  assert.equal(diskFrame("mcp"), "proposed", "new MCP proposals are already on disk");
+  assert.equal(diskFrame("mcp", true), "proposed");
+  assert.equal(diskFrame("mcp", false), "baseline", "legacy proposals retain their original disk frame");
   assert.equal(diskFrame("fs"), "proposed", "a direct write is already on disk");
 });
 

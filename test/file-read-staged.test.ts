@@ -22,14 +22,14 @@ async function hubOn(workspace: string, content: string) {
   return { hub, addr, call, workspace };
 }
 
-test("/file/read returns the staged content, not the disk", async () => {
+test("/file/read and the disk both expose new code before review", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "rh-fr-ws-"));
   const { hub, call } = await hubOn(workspace, "hello world\n");
   try {
     await call("/changes/propose", "POST", { workspace, path: "a.txt", content: "hello there\n" });
     const read = await call(`/file/read?workspace=${encodeURIComponent(workspace)}&path=a.txt`);
     assert.equal(read.content, "hello there\n", "the hub reports the staged content");
-    assert.equal(fs.readFileSync(path.join(workspace, "a.txt"), "utf8"), "hello world\n", "the disk is untouched");
+    assert.equal(fs.readFileSync(path.join(workspace, "a.txt"), "utf8"), "hello there\n", "tests see the proposal immediately");
   } finally {
     await hub.stop();
   }

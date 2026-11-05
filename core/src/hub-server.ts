@@ -116,6 +116,13 @@ export class HubServer {
           return this.send(res, 200, await this.routeObserve(await this.body(req)));
         case "GET /changes/list":
           return this.send(res, 200, { files: this.store.listChanges(this.canonicalWorkspace(this.param(url, "workspace")) ?? this.param(url, "workspace")) });
+        case "GET /review/events": {
+          const workspace = this.canonicalWorkspace(this.param(url, "workspace")) ?? this.param(url, "workspace");
+          const rawLimit = url.searchParams.get("limit");
+          const limit = rawLimit === null ? 100 : Number(rawLimit);
+          if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("limit must be an integer from 1 to 100");
+          return this.send(res, 200, this.store.reviewUpdates(workspace, url.searchParams.get("after") ?? undefined, limit, url.searchParams.get("latest") === "true"));
+        }
         case "GET /changes/get":
           return this.send(res, 200, this.routeGet(url));
         case "POST /changes/accept":
@@ -165,7 +172,7 @@ export class HubServer {
     const content = del ? "" : this.requireString(body, "content", true);
     const cs = this.store.propose(workspace, relPath, content, { delete: del });
     this.events.onChanged?.(workspace, cs.path, cs.id);
-    return { changeId: cs.id, path: cs.path, hunks: cs.hunks, applied: false, note: "staged, awaiting review" };
+    return { changeId: cs.id, path: cs.path, hunks: cs.hunks, applied: cs.applied, note: "written to disk, awaiting review; reject restores the baseline" };
   }
 
   private async routeObserve(body: Record<string, unknown>) {
@@ -252,12 +259,8 @@ export class HubServer {
   /**
    * Read a file **through the review state**, not from the disk.
    *
-   * Under review-then-apply the disk holds only the baseline plus whatever the user has
-   * already accepted, so an agent's own pending edits are not there. An agent that makes
-   * two sequential `propose_edit` calls sends the second one's `old_string` from the first
-   * one's output, so this route must report the *staged* content — baseline with every
-   * non-rejected hunk materialised — or the second call fails. Falls back to the disk when
-   * no change exists for the path.
+   * Applied proposals are read from disk, including subsequent manual/formatter edits.
+   * Only legacy, unapplied proposals need their staged content reconstructed.
    */
   private routeFileRead(url: URL, res: http.ServerResponse): void {
     const workspace = this.canonicalWorkspace(this.param(url, "workspace")) ?? this.param(url, "workspace");
@@ -272,7 +275,7 @@ export class HubServer {
     // absolute in-workspace path, and only the relative form would otherwise match.
     const relKey = toPosix(path.relative(workspace, abs));
     const cs = this.store.findChangeByPath(workspace, relKey);
-    if (cs && !cs.binary) {
+    if (cs && !cs.binary && !cs.applied) {
       if (!cs.proposedExists) {
         this.send(res, 200, {
           exists: false,
@@ -304,6 +307,7 @@ export class HubServer {
       content: read.content,
       hash: read.hash,
       path: toPosix(relPath),
+      staged: Boolean(cs),
     });
   }
 

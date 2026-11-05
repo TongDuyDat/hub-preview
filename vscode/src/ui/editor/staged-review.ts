@@ -2,8 +2,8 @@
  * Inline staged review: keep a change's review state IN the editor buffer.
  *
  * The buffer holds the merged view (old block above new block) while the file on disk keeps
- * exactly what it held before — for an "fs" change the agent's new code, for an "mcp" change
- * the baseline. Decisions never run through this module: `ChangeStore.accept/reject` still
+ * the applied new code (or the baseline for legacy unapplied MCP records).
+ * Decisions never run through this module: `ChangeStore.accept/reject` still
  * writes the correctly resolved bytes, and this engine only re-stages the view afterwards
  * (spec F1). When the last hunk is decided the view is byte-identical to the file, so
  * `restage()` un-stages and reverts the editor (spec F2). The save guard refuses any save

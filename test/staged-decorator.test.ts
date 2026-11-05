@@ -67,7 +67,7 @@ test("a staged file gets a green row for the new code and a red row for the old"
   assert.deepEqual(ghost?.lines, [], "both sides are visible, so there is no ghost preview");
 });
 
-test("an unstaged file keeps today's ghost-text behaviour", () => {
+test("a real file shows pending new code in green and old code as a ghost", () => {
   const { store, fsPath } = setup();
   const calls: Call[] = [];
   show(fsPath, OLD.split("\n").length, calls);
@@ -79,8 +79,8 @@ test("an unstaged file keeps today's ghost-text behaviour", () => {
   const colors = byColor(calls);
   assert.deepEqual(
     colors.get("diffEditor.insertedLineBackground"),
-    [],
-    "no green row: the pending new line is not on disk yet",
+    [[1, 1]],
+    "the pending new line is already on disk",
   );
   assert.ok((colors.get("none") ?? []).length > 0, "the pending hunk still gets its ghost preview");
 });

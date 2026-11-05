@@ -124,7 +124,7 @@ test("resolveHunkRanges tracks hunks after a rejected hunk shifts the lines belo
 
 // ---- Independent decisions -------------------------------------------------------
 
-test("accept B writes only B; A and C stay at their baseline lines", async () => {
+test("accept B keeps A and C's pending code on disk", async () => {
   const ws = tmp();
   const file = path.join(ws, "x.py");
   fs.writeFileSync(file, OLD);
@@ -137,11 +137,11 @@ test("accept B writes only B; A and C stay at their baseline lines", async () =>
   assert.deepEqual(store.findById(cs.id)!.hunks.map((h) => h.decision), ["pending", "accepted", "pending"]);
   const text = fs.readFileSync(file, "utf8");
   assert.ok(text.includes("B = 222"), "B is on disk");
-  assert.equal(text.includes("A = 111"), false, "A is only pending, so it is not on disk");
-  assert.equal(text.includes("C = 333"), false, "C is only pending, so it is not on disk");
+  assert.equal(text.includes("A = 111"), true, "A remains applied while pending");
+  assert.equal(text.includes("C = 333"), true, "C remains applied while pending");
 });
 
-test("reject B writes nothing; A and C stay at their baseline lines", async () => {
+test("reject B restores only B; A and C keep their pending new lines", async () => {
   const ws = tmp();
   const file = path.join(ws, "x.py");
   fs.writeFileSync(file, OLD);
@@ -151,13 +151,13 @@ test("reject B writes nothing; A and C stay at their baseline lines", async () =
 
   store.reject(cs.id, [cs.hunks[1].id]);
   assert.deepEqual(store.findById(cs.id)!.hunks.map((h) => h.decision), ["pending", "rejected", "pending"]);
-  assert.equal(fs.readFileSync(file, "utf8"), OLD, "the file is still exactly the baseline");
+  assert.equal(fs.readFileSync(file, "utf8"), NEW.replace("B = 222", "B = 2"), "only the rejected block is restored");
   assert.equal(store.listChanges(ws).length, 1, "still pending for A and C");
 });
 
 // ---- Framing: a partial accept keeps the baseline's line endings ------------------
 
-test("partial accept keeps CRLF on the untouched lines", async () => {
+test("partial accept keeps the applied proposal and its framing", async () => {
   const ws = tmp();
   const file = path.join(ws, "crlf.txt");
   const baseline = "a\r\nb\r\nc\r\nd\r\n";
@@ -171,8 +171,8 @@ test("partial accept keeps CRLF on the untouched lines", async () => {
   store.accept(cs.id, [cs.hunks[0].id]);
   assert.equal(
     fs.readFileSync(file, "utf8"),
-    "A\r\nb\r\nc\r\nd\r\n",
-    "the accepted line and every untouched line keep CRLF",
+    "A\nb\nC\nd\n",
+    "accepting one block keeps pending code and the proposal's framing",
   );
 
   // Accepting the rest lands the whole proposal, framing included.

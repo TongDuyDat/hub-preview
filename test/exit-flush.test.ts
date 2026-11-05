@@ -20,7 +20,7 @@ function fixture(): { ws: string; file: string; store: ChangeStore } {
 test("a staged (mcp) change the user never touched lands as the agent's new code", () => {
   const { ws, file, store } = fixture();
   const cs = store.propose(ws, "a.txt", NEW);
-  assert.equal(fs.readFileSync(file, "utf8"), OLD, "propose() writes nothing — review-then-apply");
+  assert.equal(fs.readFileSync(file, "utf8"), NEW, "propose() applies new code immediately");
 
   const result = flushPendingReviews(store, [ws]);
 

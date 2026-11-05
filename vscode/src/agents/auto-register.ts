@@ -42,6 +42,7 @@ export function startAgentAutoRegistration(
             globalStorageDir: storage ? path.dirname(storage.fsPath) : path.join(os.homedir(), ".config", "Code", "User", "globalStorage"),
             installedExtensions: (vscode.extensions?.all ?? []).map(extension => extension.id),
           }, id => isEnabled(id), {
+            requireReview: () => vscode.workspace.getConfiguration("review-hub").get<boolean>("requireReview", false),
             claudeInstructions: () => isEnabled("claudeCode") && vscode.workspace.getConfiguration("review-hub").get<boolean>("claude.installInstructions", true),
           });
           if (!isEnabled()) continue;
@@ -53,6 +54,11 @@ export function startAgentAutoRegistration(
             for (const result of results) {
               const text = result.label + ": " + result.status + " — " + result.configPath + (result.message ? " — " + result.message : "");
               if (result.status === "error") logger.warn(text); else logger.info(text);
+              if (result.requiredReview) {
+                const hook = result.requiredReview;
+                const message = result.label + " required review: " + hook.status + " — " + hook.path + (hook.message ? " — " + hook.message : "");
+                if (hook.status === "error" || hook.status === "unsupported") logger.warn(message); else logger.info(message);
+              }
               if (result.instructions) {
                 const instructions = result.instructions;
                 const message = result.label + " instructions: " + instructions.status + " — " + instructions.path + (instructions.message ? " — " + instructions.message : "");
@@ -60,6 +66,10 @@ export function startAgentAutoRegistration(
               }
             }
           }
+          const hooksAdded = results.filter(result => result.requiredReview?.status === "installed");
+          const hooksFailed = results.filter(result => ["error", "unsupported"].includes(result.requiredReview?.status ?? ""));
+          if ((changed || manual) && hooksAdded.length) void vscode.window.showInformationMessage("Review Hub: required review hooks installed for " + hooksAdded.map(result => result.label).join(", ") + ". Start a new agent session. Shell/build/test commands and direct writes are blocked; accept changes in Hub.");
+          if ((changed || manual) && hooksFailed.length) void vscode.window.showWarningMessage("Review Hub: required review is NOT enforced for " + hooksFailed.map(result => result.label).join(", ") + ". See Review Hub output for details.");
           const added = results.filter(result => result.status === "registered");
           const failed = results.filter(result => result.status === "error");
           const instructionsAdded = results.filter(result => result.instructions?.status === "installed");
@@ -126,7 +136,7 @@ export function startAgentAutoRegistration(
     if (!disposed) await scanManually();
   };
   const configListener = vscode.workspace.onDidChangeConfiguration(event => {
-    if (!setup && (event.affectsConfiguration("review-hub.autoRegisterMcp") || event.affectsConfiguration("review-hub.agents") || event.affectsConfiguration("review-hub.claude.installInstructions"))) void request();
+    if (!setup && (event.affectsConfiguration("review-hub.autoRegisterMcp") || event.affectsConfiguration("review-hub.agents") || event.affectsConfiguration("review-hub.claude.installInstructions") || event.affectsConfiguration("review-hub.requireReview"))) void request();
   });
   const extensionListener = vscode.extensions?.onDidChange(() => { if (isEnabled()) void request(); });
   const command = vscode.commands.registerCommand("review-hub.scanAgents", scanManually);

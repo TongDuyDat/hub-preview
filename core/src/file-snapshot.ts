@@ -15,6 +15,10 @@ export interface FileReadResult {
 
 const NUL = 0;
 
+function existingMode(absPath: string): number | undefined {
+  try { return fs.statSync(absPath).mode & 0o777; } catch { return undefined; }
+}
+
 export function isBinaryBuffer(buf: Buffer): boolean {
   const sample = buf.subarray(0, 8192);
   return sample.includes(NUL);
@@ -42,7 +46,7 @@ export function readFileSafe(absPath: string): FileReadResult {
 export function writeFileAtomic(absPath: string, content: string): void {
   fs.mkdirSync(path.dirname(absPath), { recursive: true });
   const tmp = `${absPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
-  fs.writeFileSync(tmp, content);
+  fs.writeFileSync(tmp, content, { mode: existingMode(absPath) });
   try {
     fs.renameSync(tmp, absPath);
   } catch (err: unknown) {
@@ -80,7 +84,7 @@ export function readFileBytes(absPath: string): Buffer | undefined {
 export function writeFileAtomicBytes(absPath: string, buf: Buffer): void {
   fs.mkdirSync(path.dirname(absPath), { recursive: true });
   const tmp = `${absPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
-  fs.writeFileSync(tmp, buf);
+  fs.writeFileSync(tmp, buf, { mode: existingMode(absPath) });
   try {
     fs.renameSync(tmp, absPath);
   } catch (err: unknown) {

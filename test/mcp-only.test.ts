@@ -40,7 +40,7 @@ for (const backend of ["json", "auto"] as const) {
       assert.equal(cs.baseline, "user changes before MCP\n");
       assert.deepEqual(cs.hunks.flatMap(h => h.oldLines), []);
       assert.deepEqual(cs.hunks.flatMap(h => h.newLines), ["AI addition"]);
-      assert.equal(fs.readFileSync(file, "utf8"), cs.baseline);
+      assert.equal(fs.readFileSync(file, "utf8"), cs.proposed);
       store.reject(cs.id);
       assert.equal(fs.readFileSync(file, "utf8"), "user changes before MCP\n");
       // A later independent review must not use the previous checkpoint either.
@@ -66,7 +66,7 @@ for (const backend of ["json", "auto"] as const) {
       assert.equal(second.baseline, original);
       assert.equal(second.hunks[0].decision, "accepted");
       assert.equal(second.hunks[1].decision, "pending");
-      assert.equal(fs.readFileSync(file, "utf8"), "new\n" + pad + "tail\n");
+      assert.equal(fs.readFileSync(file, "utf8"), "new\n" + pad + "newer tail\n");
     } finally { store.dispose(); }
   });
 }

@@ -1,3 +1,4 @@
+import { ReviewEventJournal } from "./review-events";
 /**
  * The Change Store: the single source of truth for "what changed since the last
  * accepted checkpoint", shared by the MCP path (staged proposals) and the FS path
@@ -194,10 +195,12 @@ export class ChangeStore {
   private excludeRes: RegExp[];
   private backend: StoreBackend;
   private readonly mcpOnly: boolean;
+  private readonly reviewEvents: ReviewEventJournal;
 
   constructor(opts: StoreOptions = {}) {
     this.mcpOnly = opts.mcpOnly ?? false;
     this.baseDir = opts.baseDir ?? path.join(os.homedir(), ".review-hub");
+    this.reviewEvents = new ReviewEventJournal(this.baseDir);
     this.maxFileSize = opts.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
     this.excludeGlobs = opts.excludeGlobs ?? [];
     this.excludeRes = this.excludeGlobs.map(globToRegExp);
@@ -580,49 +583,8 @@ export class ChangeStore {
   }
 
   /**
-   * Resolve the baseline for a path.
-   *
-   * `capture: true` (the MCP propose path) reads the current disk content as the
-   * baseline when the path is not yet in the checkpoint — correct, because propose
-   * runs *before* the change.
-   *
-   * `capture: false` (the FS observe path) must NOT read the disk: the watcher fires
-   * *after* the write, so the disk already holds the new content. An untracked path is
-   * treated as absent, which is right for a newly created file.
-   */
-  private baselineFor(workspace: string, relPath: string, capture: boolean): { content: string; exists: boolean } {
-    const rel = toPosix(relPath);
-    const cp = this.readCheckpoint(workspace) ?? { workspace, setAt: Date.now(), files: {} };
-    const raw = cp.files[rel];
-    if (raw) {
-      const { hash, encoded } = this.resolveCheckpointValue(raw);
-      if (encoded) {
-        // Raw bytes, not text: an empty baseline (whole-file diff) is the safe answer.
-        return { content: "", exists: true };
-      }
-      return { content: this.getBaseline(workspace, hash), exists: true };
-    }
-    if (!capture) {
-      return { content: "", exists: false };
-    }
-    const abs = resolveInside(workspace, rel);
-    if (!abs) {
-      return { content: "", exists: false };
-    }
-    const read = readFileSafe(abs);
-    if (!read.exists) {
-      return { content: "", exists: false };
-    }
-    const captured = this.putBaseline(workspace, read.content);
-    cp.files[rel] = captured;
-    this.writeCheckpoint(workspace, cp);
-    return { content: read.content, exists: true };
-  }
-
-  /**
-   * Stage a proposed content (MCP path). **Nothing is written to disk.** The file keeps
-   * its baseline content until the user decides, and only the hunks they accept are
-   * materialised — so `applied: false` here means "the disk does not hold this proposal".
+   * Persist the review baseline, then apply proposed content immediately so builds/tests
+   * use the new code. Accept keeps it; reject restores baseline lines per hunk.
    */
   propose(workspace: string, relPath: string, content: string, opts: { delete?: boolean } = {}): ChangeSet {
     const abs = resolveInside(workspace, relPath);
@@ -633,17 +595,17 @@ export class ChangeStore {
     const existing = this.findChangeByPath(workspace, rel);
     // A fresh MCP review starts at the current working file, never a Git/checkpoint
     // snapshot. Further proposals retain the same review baseline and decisions.
-    const base = this.mcpOnly
-      ? existing
-        ? { content: existing.baseline, exists: existing.baselineExists }
-        : (() => {
-            const current = readFileSafe(abs);
-            return { content: current.exists ? current.content : "", exists: current.exists };
-          })()
-      : this.baselineFor(workspace, rel, true);
+    const current = readFileSafe(abs);
+    if ((current.binary || existing?.binary) && !opts.delete) {
+      throw new Error(`cannot propose text content for a binary file: ${rel}`);
+    }
+    const binary = existing?.binary ?? current.binary;
+    const base = existing
+      ? { content: existing.baseline, exists: existing.baselineExists }
+      : { content: binary ? encodeBaseline(fs.readFileSync(abs)) : current.content, exists: current.exists };
     const proposed = opts.delete ? "" : content;
     const proposedExists = !opts.delete;
-    const hunks = computeHunks(splitContent(base.content).lines, splitContent(proposed).lines);
+    const hunks = binary ? [] : computeHunks(splitContent(base.content).lines, splitContent(proposed).lines);
     const meta = splitContent(proposedExists ? proposed : base.content);
     const cs: ChangeSet = {
       id: existing?.id ?? changeIdFor(workspace, rel),
@@ -655,7 +617,8 @@ export class ChangeStore {
       eol: meta.eol,
       bom: meta.bom,
       finalNewline: meta.finalNewline,
-      binary: false,
+      binary,
+      baselineB64: binary ? (existing?.baselineB64 ?? true) : undefined,
       baseline: base.content,
       proposed,
       baselineExists: base.exists,
@@ -665,8 +628,29 @@ export class ChangeStore {
       createdAt: existing?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     };
+    // Keep watcher baselines aligned with this review's original, never an older Git/checkpoint value.
+    if (!existing) {
+      const cp = this.readCheckpoint(workspace) ?? { workspace, setAt: Date.now(), files: {} };
+      if (base.exists) cp.files[rel] = (binary ? "bin:" : "") + this.putBaseline(workspace, base.content);
+      else delete cp.files[rel];
+      this.writeCheckpoint(workspace, cp);
+    }
+    // Save the original before touching disk, including for new files and deletions.
     this.writeChange(cs);
-    return cs;
+    const applied = { ...cs, applied: true };
+    const resolved = binary ? "" : joinContent(
+      resolveLines(splitContent(cs.baseline).lines, cs.hunks, "proposed"),
+      this.resolvedMeta(applied, "accepted"),
+    );
+    try {
+      this.applyToDisk(applied, resolved, "accepted");
+    } catch (error) {
+      if (existing) this.writeChange(existing);
+      else this.removeChange(cs);
+      throw error;
+    }
+    this.writeChange(applied);
+    return applied;
   }
 
   /**
@@ -701,14 +685,11 @@ export class ChangeStore {
     // No baseline and no prior change: this is a file created since the checkpoint.
     const proposedExists = read.exists;
     const proposed = read.exists ? read.content : "";
-    // A staged (mcp) change owns the review state for this path: the disk holds at most
-    // the hunks the user has accepted, never the pending ones. Re-deriving hunks from the
-    // disk would silently drop every pending hunk, so trust the staged set unless someone
-    // wrote content that our own decisions did not put there. Compare lines only, so a
-    // framing-only difference (trailing newline) cannot trip it.
+    // Our own writes/decisions must not turn an MCP proposal into an FS change or lose
+    // its decisions. Legacy unapplied proposals still use their baseline disk frame.
     if (existing && existing.origin === "mcp") {
       const diskLines = splitContent(proposed).lines;
-      const projected = resolveLines(splitContent(existing.baseline).lines, existing.hunks, diskFrame(existing.origin));
+      const projected = resolveLines(splitContent(existing.baseline).lines, existing.hunks, diskFrame(existing.origin, existing.applied));
       if (diskLines.join("\n") === projected.join("\n")) {
         return existing;
       }
@@ -792,6 +773,10 @@ export class ChangeStore {
     return cs;
   }
 
+  reviewUpdates(workspace: string, after?: string, limit = 100, latest = false) {
+    return this.reviewEvents.read(workspace, after, limit, latest);
+  }
+
   // ---- decisions ----
 
   private decide(changeId: string, hunkIds: string[] | undefined, decision: "accepted" | "rejected"): DecideResult {
@@ -800,9 +785,25 @@ export class ChangeStore {
       throw new Error(`unknown change: ${changeId}`);
     }
     const set = hunkIds ? new Set(hunkIds) : undefined;
+    const changed = cs.hunks.filter(h => (set === undefined || set.has(h.id)) && h.decision !== decision);
+    const previousStatus = cs.status;
     cs.hunks = cs.hunks.map((h) => (set === undefined || set.has(h.id) ? { ...h, decision } : h));
     cs.updatedAt = Date.now();
-    return this.settle(cs, decision);
+    const result = this.settle(cs, decision);
+    // Capture decisions at the store layer: the editor often bypasses HTTP routes.
+    if (cs.origin === "mcp" && (changed.length || (cs.binary && previousStatus !== "resolved"))) {
+      try {
+        this.reviewEvents.append({ workspace: cs.workspace, path: cs.path, changeId: cs.id,
+          decision, hunkIds: changed.slice(0, 200).map(h => h.id), hunksTruncated: changed.length > 200,
+          accepted: result.hunks.filter(h => h.decision === "accepted").length,
+          rejected: result.hunks.filter(h => h.decision === "rejected").length,
+          pending: result.remaining, resolved: result.resolved });
+      } catch (error) {
+        // A feedback failure must not turn an already-applied user decision into an error.
+        console.warn("Review Hub: decision saved, but agent feedback could not be recorded:", error);
+      }
+    }
+    return result;
   }
 
   accept(changeId: string, hunkIds?: string[]): DecideResult {
@@ -814,22 +815,15 @@ export class ChangeStore {
   }
 
   /**
-   * Apply decisions. The disk holds the baseline plus whatever the user has already
-   * accepted — for an "mcp" change nothing else is written, for an "fs" change the agent's
-   * own write is already there. `applyToDisk` re-materialises the file on every decision,
-   * so an accepted hunk's lines appear and a rejected hunk's baseline lines are restored.
+   * Apply decisions without reverting pending code. Rejected hunks restore baseline
+   * lines while accepted and pending hunks retain the proposal already on disk.
    * When every hunk is decided the baseline advances and the change set is resolved.
    */
   private settle(cs: ChangeSet, decision: "accepted" | "rejected"): DecideResult {
     const pending = cs.hunks.filter((h) => h.decision === "pending").length;
     const fullyDecided = cs.hunks.length === 0 ? true : pending === 0;
 
-    // Which frame the disk is in depends on where the change came from:
-    //   "mcp" — the agent staged the edit and the disk still holds the baseline, so an
-    //           undecided hunk must stay at its baseline lines until the user accepts it.
-    //   "fs"  — the agent wrote the file directly, so an undecided hunk is already on disk.
-    // The rule itself lives in `diskFrame` so the decorations and CodeLens cannot drift.
-    const pendingMode = diskFrame(cs.origin);
+    const pendingMode = diskFrame(cs.origin, cs.applied);
     const baselineLines = splitContent(cs.baseline).lines;
     const resolvedLines = resolveLines(baselineLines, cs.hunks, pendingMode);
     // A binary change carries a base64 baseline, not line content: it must never be
@@ -838,7 +832,7 @@ export class ChangeStore {
     this.applyToDisk(cs, resolved, decision);
 
     if (fullyDecided) {
-      this.advanceBaseline(cs, resolved);
+      this.advanceBaseline(cs, resolved, decision);
       cs.status = "resolved";
       cs.updatedAt = Date.now();
       // Keep the resolved set on disk (instead of deleting it) so an open review tab can
@@ -859,10 +853,8 @@ export class ChangeStore {
    * Framing (EOL / BOM / trailing newline) for the resolved content.
    *
    * The change set records the framing of the *proposed* file, because that is what the
-   * agent wrote. A modification keeps the baseline's line endings unless every hunk is
-   * accepted — a partial accept must not convert a CRLF file to LF (or drop a BOM, or add
-   * a trailing newline) on the lines the user never touched. A fully rejected change is
-   * also rebuilt with the baseline's framing, since the resolved file *is* the baseline.
+   * agent wrote. Applied pending/accepted code keeps proposal framing; restoring any
+   * baseline lines uses baseline framing. Fully rejecting restores the original bytes.
    *
    * A framing-only proposal (same lines, different trailing newline) produces zero hunks,
    * so there the user's intent comes from the decision that was just made.
@@ -882,7 +874,8 @@ export class ChangeStore {
     if (!cs.baselineExists) {
       return proposedMeta();
     }
-    if (cs.hunks.every((h) => h.decision === "accepted")) {
+    if (cs.hunks.every((h) => h.decision === "accepted" ||
+      (h.decision === "pending" && diskFrame(cs.origin, cs.applied) === "proposed"))) {
       return proposedMeta();
     }
     return baselineMeta();
@@ -895,9 +888,13 @@ export class ChangeStore {
    * still exists), the next watcher poll would resurrect the change as a bogus
    * whole-file edit.
    */
-  private resolvedExists(cs: ChangeSet, resolved: string): boolean {
+  private resolvedExists(cs: ChangeSet, resolved: string, decision: "accepted" | "rejected"): boolean {
+    if (cs.hunks.length === 0) {
+      return decision === "rejected" ? cs.baselineExists : cs.proposedExists;
+    }
     const isDelete = cs.proposedExists === false && cs.baselineExists;
-    const acceptedDelete = isDelete && cs.hunks.every((h) => h.decision === "accepted");
+    const acceptedDelete = isDelete && cs.hunks.every((h) => h.decision === "accepted" ||
+      (h.decision === "pending" && diskFrame(cs.origin, cs.applied) === "proposed"));
     if (acceptedDelete) {
       return false;
     }
@@ -924,9 +921,12 @@ export class ChangeStore {
           deleteFileSafe(cs.absPath);
         }
       }
+      if (decision === "accepted" && !cs.proposedExists) {
+        deleteFileSafe(cs.absPath);
+      }
       return;
     }
-    if (this.resolvedExists(cs, resolved)) {
+    if (this.resolvedExists(cs, resolved, decision)) {
       writeFileAtomic(cs.absPath, resolved);
     } else {
       deleteFileSafe(cs.absPath);
@@ -942,7 +942,7 @@ export class ChangeStore {
    * entry is kept, and with the same hash), while a fully rejected new file leaves
    * nothing (so the entry is dropped).
    */
-  private advanceBaseline(cs: ChangeSet, resolved: string): void {
+  private advanceBaseline(cs: ChangeSet, resolved: string, decision: "accepted" | "rejected"): void {
     const cp = this.readCheckpoint(cs.workspace);
     if (!cp) {
       return;
@@ -960,7 +960,7 @@ export class ChangeStore {
       this.writeCheckpoint(cs.workspace, cp);
       return;
     }
-    if (this.resolvedExists(cs, resolved)) {
+    if (this.resolvedExists(cs, resolved, decision)) {
       cp.files[cs.path] = this.putBaseline(cs.workspace, resolved);
     } else {
       delete cp.files[cs.path];

@@ -32,7 +32,7 @@ export interface ChangeSet {
   /** Absolute path on disk. */
   absPath: string;
   origin: ChangeOrigin;
-  /** True when `proposed` is already on disk (a direct write we observed). */
+  /** True when pending proposal code is on disk (MCP or an observed direct write). */
   applied: boolean;
   /** Line ending used by the file: "\n" or "\r\n". */
   eol: "\n" | "\r\n";
@@ -136,4 +136,29 @@ export const HUB_PROTOCOL = 1;
 export interface FileNode {
   workspace: string;
   path: string;
+}
+
+/** Review metadata only: clients must re-read source after a decision. */
+export interface ReviewDecisionEvent {
+  id: string;
+  at: number;
+  workspace: string;
+  path: string;
+  changeId: string;
+  decision: "accepted" | "rejected";
+  hunkIds: string[];
+  hunksTruncated: boolean;
+  accepted: number;
+  rejected: number;
+  pending: number;
+  resolved: boolean;
+}
+
+export interface ReviewUpdates {
+  workspace: string;
+  events: ReviewDecisionEvent[];
+  cursor: string;
+  hasMore: boolean;
+  /** Cursor expired/missing: re-read affected files and inspect current review state. */
+  reset: boolean;
 }

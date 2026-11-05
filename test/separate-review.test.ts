@@ -50,12 +50,12 @@ test("native inline review updates each hunk without contaminating Auto Save", a
       assert.ok(review.getText().includes("old\nnew\nextra\n"));
       assert.equal(review.isDirty, false);
       assert.equal(vscode.__panels.length, 0, "text review must use the native editor, not a webview");
-      assert.equal(doc.getText(), old, `${mode}: opening review leaves the editable file alone`);
+      assert.equal(doc.getText(), cs.proposed, `${mode}: opening review keeps the applied new code`);
       for (const listener of vscode.__listeners.filter((listener) => listener.event === "willSave")) {
         listener.cb({ document: doc, waitUntil: () => assert.fail("review must not intercept Auto Save") } as never);
       }
       await command("review-hub.acceptHunk", cs.id, cs.hunks[0].id);
-      assert.equal(doc.getText(), `new\nextra\n${pad}keep\n`, `${mode}: the first click writes only its hunk`);
+      assert.equal(doc.getText(), cs.proposed, `${mode}: accepting one hunk preserves pending new code`);
       assert.equal(store.findById(cs.id)!.hunks.filter(h => h.decision === "pending").length, 1);
       assert.ok(!review.getText().split("\n").includes("old"));
       assert.ok(review.getText().split("\n").includes("added"));
@@ -93,7 +93,7 @@ test("native inline review updates each hunk without contaminating Auto Save", a
     assert.ok(opened.document.uri.path.endsWith("/auto.py"));
     assert.equal(opened.options.preserveFocus, true);
     assert.equal(vscode.__panels.length, 0);
-    assert.equal(fs.readFileSync(autoFile, "utf8"), "print('old')\n");
+    assert.equal(fs.readFileSync(autoFile, "utf8"), "print('new')\n");
   } finally {
     await deactivate();
     for (const subscription of ctx.subscriptions) subscription.dispose();

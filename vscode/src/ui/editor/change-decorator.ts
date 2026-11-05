@@ -6,10 +6,9 @@
  * CodeLens directly on the file — so the user sees and resolves the change without
  * leaving the file, not only in the separate diff view.
  *
- * The disk holds the baseline plus the hunks the user has accepted — for an "mcp" change
- * nothing else is written, while an "fs" change was written directly by the agent. Which
- * frame that is comes from `diskFrame(origin)`, and a pending hunk is only absent from disk
- * in the "baseline" frame. A hunk that is not on disk cannot have a coloured row: its
+ * The disk holds pending and accepted new code, with rejected baseline lines restored.
+ * Legacy unapplied MCP records use `diskFrame(origin, applied)`'s baseline frame.
+ * A hunk that is not on disk cannot have a coloured row: its
  * removal (or insertion) is previewed as ghost text, since VS Code injected text must be a
  * single line.
  */
@@ -156,12 +155,10 @@ export class ChangeDecorator implements vscode.Disposable {
     const removed: vscode.DecorationOptions[] = [];
     const deleted: vscode.DecorationOptions[] = [];
 
-    // The frame the disk is in depends on the change's origin (see `diskFrame`): for an
-    // "mcp" change the disk holds the baseline, so a hunk's range is its baseline lines;
-    // for an "fs" change the agent wrote the file directly, so a pending hunk is already
-    // on disk and its range is the proposed one. Anchoring in the wrong frame colours the
+    // Pending code is on disk except in legacy unapplied MCP records.
+    // Anchoring in the wrong frame colours the
     // wrong lines as soon as one hunk above is decided.
-    const frame = diskFrame(cs.origin);
+    const frame = diskFrame(cs.origin, cs.applied);
     const pendingOnDisk = frame === "proposed";
     const ranges = new Map(
       resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, frame).map((r) => [r.id, r]),

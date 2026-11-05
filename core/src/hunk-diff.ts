@@ -120,13 +120,12 @@ export function computeHunks(baselineLines: string[], proposedLines: string[]): 
 
 /**
  * Which frame the on-disk content is in for a change set.
- *   "mcp" — the agent staged the edit, so the disk still holds the baseline: an
- *           undecided hunk must be anchored at its baseline lines.
- *   "fs"  — the agent wrote the file directly, so an undecided hunk is already on disk.
+ * New MCP proposals and direct writes both put pending code on disk immediately.
+ * Persisted legacy MCP proposals with `applied: false` still use the baseline frame.
  * Every anchor (decorations, CodeLens, settle) must use this so the frames cannot drift.
  */
-export function diskFrame(origin: ChangeOrigin): "baseline" | "proposed" {
-  return origin === "mcp" ? "baseline" : "proposed";
+export function diskFrame(origin: ChangeOrigin, applied = true): "baseline" | "proposed" {
+  return origin === "mcp" && !applied ? "baseline" : "proposed";
 }
 
 /**
@@ -139,7 +138,7 @@ export function diskFrame(origin: ChangeOrigin): "baseline" | "proposed" {
  *    as the agent left it.
  *  - "baseline": keep the old lines. Correct when nothing has been written yet.
  *
- * Prefer `diskFrame(cs.origin)` to pick this for a change set.
+ * Prefer `diskFrame(cs.origin, cs.applied)` to pick this for a change set.
  */
 export function resolveLines(
   baselineLines: string[],
@@ -192,7 +191,7 @@ export interface ResolvedHunkRange {
  * hunk below it shifts — anchoring on `newStart` then puts the highlight and the
  * Accept/Reject buttons on the wrong lines.
  *
- * Prefer `diskFrame(cs.origin)` to pick `pendingMode` for a change set.
+ * Prefer `diskFrame(cs.origin, cs.applied)` to pick `pendingMode` for a change set.
  */
 export function resolveHunkRanges(
   baselineLines: string[],

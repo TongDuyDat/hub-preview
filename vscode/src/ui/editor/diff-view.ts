@@ -63,8 +63,8 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     // The real file, so Accept/Reject is available without opening any review tab.
-    // Anchor in the frame the disk is actually in (`diskFrame`): the baseline frame for a
-    // staged "mcp" change, the proposed frame for an "fs" change the agent wrote directly.
+    // Anchor in the frame the disk is actually in: proposed for new MCP/direct writes,
+    // baseline only for persisted legacy MCP proposals with applied: false.
     // Using the wrong frame puts the buttons on the wrong line as soon as one hunk above
     // is decided, since that changes how many lines it contributes.
     if (uri.scheme === "file") {
@@ -90,7 +90,7 @@ export class HunkCodeLensProvider implements vscode.CodeLensProvider {
         });
       }
       const ranges = new Map(
-        resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, diskFrame(cs.origin)).map((r) => [r.id, r]),
+        resolveHunkRanges(splitContent(cs.baseline).lines, cs.hunks, diskFrame(cs.origin, cs.applied)).map((r) => [r.id, r]),
       );
       return cs.hunks.flatMap((hunk, index) => {
         const anchor = ranges.get(hunk.id)?.start ?? hunk.newStart;

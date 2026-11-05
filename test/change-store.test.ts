@@ -31,9 +31,9 @@ test("propose stages without writing; accept writes the accepted lines", async (
   await store.setCheckpoint(ws, { maxFileSize: 1e9, excludeGlobs: [] });
   const cs = store.propose(ws, "a.txt", "one\nTWO\nthree\n");
   assert.equal(cs.hunks.length, 1);
-  // Review-then-apply: nothing is written until the user decides.
-  assert.equal(cs.applied, false);
-  assert.equal(fs.readFileSync(path.join(ws, "a.txt"), "utf8"), "one\ntwo\nthree\n");
+  // Apply first so builds/tests use the proposal while review is pending.
+  assert.equal(cs.applied, true);
+  assert.equal(fs.readFileSync(path.join(ws, "a.txt"), "utf8"), "one\nTWO\nthree\n");
 
   const result = store.accept(cs.id);
   assert.equal(result.resolved, true);

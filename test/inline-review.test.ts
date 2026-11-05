@@ -33,7 +33,7 @@ test("side-by-side content removes each decided diff while other hunks stay pend
   store.accept(cs.id, [cs.hunks[0].id]);
   assert.ok(!left().startsWith("remove\n"));
   assert.ok(!right().startsWith("remove\n"));
-  assert.equal(fs.readFileSync(path.join(ws, "demo.py"), "utf8"), left());
+  assert.equal(fs.readFileSync(path.join(ws, "demo.py"), "utf8"), right());
   store.reject(cs.id, [cs.hunks[1].id]);
   assert.ok(right().includes("old\n"));
   assert.ok(!right().includes("new\n"));

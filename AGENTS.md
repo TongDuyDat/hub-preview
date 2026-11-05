@@ -11,7 +11,7 @@ This project uses Review Hub to review AI edits. **Do not use the built-in `edit
   **Use this instead of `rm`.**
 - `read_file` (or `mcp__review_hub__read_file`) — read a file (`path`).
 - `list_changes` (or `mcp__review_hub__list_changes`) — list files changed since the last accepted checkpoint.
-- Review Hub **does not write your edit to disk until the user accepts it**. Reading the file with your own tools will show the OLD content — that is expected, not a failed edit.
+- Review Hub writes changes to disk immediately so builds/tests use the new code. Accept keeps the new code; Reject restores the baseline for the selected hunks.
 - Use the `read_file` tool (not `cat`/Read) to see the content you have staged so far.
 
 A `propose_*` call returns `status: "staged_for_review"` with a `changeId`. That is **success, not an error**. The edit is staged and the user reviews it; do not retry with a different tool and do not ask for confirmation.

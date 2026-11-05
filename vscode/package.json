@@ -290,6 +290,12 @@
           "scope": "machine",
           "markdownDescription": "Enable on **each machine** (this setting does not sync). Automatically detect supported AI agents on this machine (or the current remote host) and add Review Hub MCP to their user configuration. The first launch offers **Enable and Scan**; the **Scan and Register Detected Agents** command can also enable setup. Scans at startup, every minute and when installed extensions change. Existing MCP entries are preserved. Turning this off stops registration and keeps configurations already added."
         },
+        "review-hub.requireReview": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "markdownDescription": "Require human review through tool hooks for **Claude Code and OMP on Linux/macOS**. Requires Auto Register MCP and the agent checkbox. Blocks direct writes, shell/Python/eval, delegation, other MCP tools and agent Accept/Reject/checkpoints; use Hub proposal tools. Run builds/tests yourself in a terminal. Start a new agent session after installation/removal. Turning this off removes our policy on the next enabled scan; turning Auto Register MCP off or uninstalling the extension keeps installed hooks. Other agents show an unsupported warning. Hooks protect tool dispatch while loaded, not arbitrary plugins or disabled hooks. Claude hook commands require Node.js on PATH."
+        },
         "review-hub.claude.installInstructions": {
           "type": "boolean",
           "default": true,

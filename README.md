@@ -10,7 +10,7 @@ Hỗ trợ đồng thời cả **Visual Studio Code** và **JetBrains IDEs** (In
 
 Tương thích với tất cả AI Coding Agents phổ biến: **Claude Code, Cursor, Windsurf, opencode, dsh, Cline, Roo Code, Antigravity...** qua giao thức MCP chuẩn.
 
-> **Điểm cốt lõi:** Review Hub **không ghi gì lên đĩa khi agent đề xuất thay đổi** (Review-then-Apply qua MCP). Thay đổi được giữ lại trong bộ nhớ đệm kèm diff, và **chỉ những hunk bạn bấm ✓ mới thực sự được ghi xuống đĩa**. Đối với các lệnh ghi đè trực tiếp (Direct Writes), hệ thống tự động bắt thay đổi và cho phép hoàn tác (Undo/Revert) từng khối về bản gốc (baseline).
+> **Điểm cốt lõi:** Review Hub **ghi code mới xuống đĩa ngay khi agent đề xuất**, để build/test dùng đúng code mới. Hub lưu bản gốc (baseline) để hiển thị diff xuyên suốt các lần sửa. **Accept** giữ code mới; **Reject** khôi phục code cũ theo từng hunk. Các hunk chưa duyệt vẫn giữ code mới trên đĩa.
 
 ---
 
@@ -145,13 +145,17 @@ Thêm cấu hình sau vào công cụ AI của bạn (Claude Code, Cline, Roo Co
 
 Package **`review-hub-mcp`** cung cấp đầy đủ các công cụ chuẩn cho Agent:
 
+Các proposal được ghi xuống đĩa ngay để build/test chạy trên code mới. Hub giữ bản gốc
+để so sánh: **Accept** giữ code mới, **Reject** khôi phục code cũ theo từng hunk.
+Các hunk chưa duyệt vẫn giữ code mới trên đĩa.
+
 - `propose_edit`: Đề xuất sửa một đoạn trong file (tự động thích ứng EOL CRLF/LF, giữ trong hàng đợi review).
 - `propose_write`: Đề xuất tạo mới hoặc thay thế toàn bộ file (chờ review).
 - `propose_delete`: Đề xuất xóa file (chờ review).
 - `read_file`: Đọc nội dung file xuyên qua trạng thái staged (hỗ trợ phân trang dòng `start_line`/`end_line` và `line_numbers`).
 - `list_changes`: Liệt kê các file đang chờ review và số lượng hunk.
 - `get_change`: Xem chi tiết các hunk và unified diff của một file cụ thể.
-- `accept`: Chấp thuận ghi các hunk hoặc toàn bộ file xuống đĩa.
+- `accept`: Chấp thuận và giữ code mới của các hunk hoặc toàn bộ file trên đĩa.
 - `reject`: Từ chối và khôi phục về trạng thái ban đầu.
 - `set_checkpoint`: Đánh dấu trạng thái hiện tại trên đĩa làm baseline mới.
 - `get_checkpoint` & `clear_checkpoint`: Kiểm tra hoặc làm sạch baseline hiện tại.
@@ -258,3 +262,45 @@ cd jetbrains && ./gradlew buildPlugin
 ## Tải bản phát hành và publish
 
 Tải VSIX công khai tại [GitHub Releases](https://github.com/TongDuyDat/hub-preview/releases/latest). Xem [PUBLISHING.md](PUBLISHING.md) để đăng ký/publish npm, tạo GitHub Release và cấu hình GitHub Pages.
+
+### Require human review
+
+Enable **Auto Register MCP**, select your agent, then enable **Require Review** and run
+**Review Hub: Scan and Register Detected Agents**. The first supported adapters are
+Claude Code and OMP on Linux/macOS. Start a new agent session; existing sessions are
+not restarted. Check the Review Hub output for `required review: installed`.
+Other agents can connect to MCP but report `unsupported` for enforcement.
+
+The hooks allow Hub proposals and staged reads, and block native file writes,
+shell/Python/eval, delegated execution, unrecognized tools, other MCP servers, and
+agent Accept/Reject/checkpoint actions. OMP can invoke allowed Hub tools through their
+exact `xd://mcp__review_hub_<tool>` devices. Source reads use Hub `read_file`.
+When Hub is down the agent cannot fall back to direct edits. You accept/reject in Hub.
+Run builds/tests yourself in a terminal; arbitrary shell is deliberately blocked.
+Claude's hook requires `node` on PATH. These hooks govern model-issued tool calls;
+they do not sandbox arbitrary plugins, host code, user commands or disabled hooks.
+
+To remove the policy, turn **Require Review** off while Auto Register MCP and the
+agent checkbox remain enabled, scan again, and start a new agent session. Existing
+user hooks/settings are preserved and backed up. Disabling automatic registration
+or uninstalling Review Hub does not remove hooks already installed.
+
+### Agent feedback after review
+
+`get_review_updates` returns persistent Accept/Reject events with changed hunk IDs,
+accepted/rejected/pending counts, resolution state, and a cursor. Pass the returned
+`cursor` as `after` to continue; fetch more pages while `hasMore` is true. `reset`
+means the cursor is outside the retained read window: inspect current change state
+and re-read files. History includes resolved files after they leave the pending list.
+The metadata journal contains no source text; reads are bounded to its last 1 MiB.
+
+While an MCP session is connected, decisions for workspaces it has used are grouped
+into advisory `notifications/message` logs (about every 1.5 seconds). Clients may
+ignore logs; they do not start a model turn or incur inference by themselves. New
+review decisions also appear as `review_updates` in subsequent normal tool results.
+A proposal against a file reviewed since this session last checked is blocked with
+`review_decisions_changed` until `read_file` re-reads that file. Preserve accepted
+code and never automatically re-propose rejected hunks without a new user request.
+This gate is session-based; reconnecting agents should use `get_review_updates` to
+replay history. Update both extension/Hub and MCP server to enable feedback. Older
+Hubs retain normal tool behavior but the feedback tool reports unavailability.

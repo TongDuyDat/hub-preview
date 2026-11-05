@@ -43,7 +43,7 @@ test("activation recovers legacy review buffers without staging new file buffers
   // file is what arms the save guard. The store is file-backed at the same baseDir the
   // extension uses, so activation sees this change.
   const store = new ChangeStore({});
-  const cs = store.propose(ws, "a.txt", "one\ntwo\nthree\n");
+  const cs = store.propose(ws, "a.txt", "one\nTWO\nthree\n");
   const aPath = path.join(ws, "a.txt");
   const diskText = fs.readFileSync(aPath, "utf8");
   const viewText = buildStagedText(cs);

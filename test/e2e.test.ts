@@ -7,7 +7,7 @@ import { HubServer } from "../core/src/hub-server";
 
 /**
  * End-to-end: the two paths a real agent can take, verified against one hub.
- * 1. MCP path — stage an edit, nothing on disk, accept writes it.
+ * 1. MCP path — apply an edit immediately, accept keeps it.
  * 2. FS path — an agent ignores the MCP and writes directly; reject restores the
  *    baseline lines for just the rejected hunk.
  */
@@ -38,8 +38,8 @@ test("e2e: staged edit accepted, direct write hunk-rejected", async () => {
       content: "function add(a, b) {\n  return a + b;\n}\n\nfunction sub(a, b) {\n  return a - b;\n}\n",
     });
     assert.equal(proposed.hunks.length, 1);
-    // Review-then-apply: staging must NOT touch the file.
-    assert.doesNotMatch(fs.readFileSync(file, "utf8"), /function sub/, "not applied on propose");
+    assert.equal(proposed.applied, true);
+    assert.match(fs.readFileSync(file, "utf8"), /function sub/, "applied before review for builds/tests");
 
     await api("POST", "/changes/accept", { changeId: proposed.changeId });
     assert.match(fs.readFileSync(file, "utf8"), /function sub/, "accepted edit kept");

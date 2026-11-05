@@ -1,3 +1,4 @@
+import { ReviewFeedback, REVIEW_FEEDBACK_INSTRUCTION } from "./review-feedback";
 /**
  * Thin stdio MCP server. Harnesses (Claude Code, opencode, dsh, Cline, Roo) spawn
  * this per session; it forwards every tool call to the Review Hub HTTP server run by
@@ -12,7 +13,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { createRegistry, defaultBaseDir, pidAlive } from "../core/src/registry";
 import type { HubEntry } from "../core/src/registry";
-import type { ChangeSet, Hunk } from "../core/src/types";
+import type { ChangeSet, Hunk, ReviewUpdates } from "../core/src/types";
+import * as nodePath from "node:path";
+import { resolveInside, toPosix } from "../core/src/file-snapshot";
+import { applyFileEdits, changedContext, type FileEdit } from "./batch-changes";
 
 interface HubTarget {
   url: string;
@@ -203,9 +207,10 @@ interface TypedServer {
     cb: (args: Record<string, unknown>) => Promise<{ messages: Array<{ role: "user" | "assistant"; content: { type: "text"; text: string } }> }>,
   ): unknown;
   connect(transport: unknown): Promise<void>;
+  sendLoggingMessage(params: { level: "info"; logger: string; data: unknown }): Promise<void>;
 }
 
-const server = new McpServer({ name: "review-hub", version: "0.3.0" }) as unknown as TypedServer;
+const server = new McpServer({ name: "review-hub", version: "0.3.0" }, { capabilities: { logging: {} } }) as unknown as TypedServer;
 
 function ok(data: unknown): ToolResult {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -214,6 +219,69 @@ function ok(data: unknown): ToolResult {
 function fail(message: string): ToolResult {
   return { isError: true, content: [{ type: "text" as const, text: message }] };
 }
+
+const feedback = new ReviewFeedback((workspace, after, latest) => callHub<ReviewUpdates>("/review/events", {
+  query: { workspace, ...(after ? { after } : {}), ...(latest ? { latest: "true" } : {}) },
+}));
+
+/** Attach review feedback to normal tool results; stale proposals must first re-read. */
+function registerTool(name: string, config: ToolConfig, callback: ToolCallback): void {
+  server.registerTool(name, config, async args => {
+    if (name === "get_review_updates") return callback(args);
+    const candidates = name === "propose_changes" ? (args.changes as Array<{ path: string }>).map(change => change.path) : [typeof args.path === "string" ? args.path : undefined];
+    const targets: Array<{ workspace: string; path?: string }> = [];
+    const pages: ReviewUpdates[] = [];
+    const checked = new Set<string>();
+    for (const candidate of candidates) {
+      const workspace = typeof args.workspace === "string" ? args.workspace : await resolveWorkspace(candidate);
+      const absolute = candidate ? resolveInside(workspace, candidate) : undefined;
+      const path = absolute ? toPosix(nodePath.relative(workspace, absolute)) : undefined;
+      targets.push({ workspace, path });
+      if (checked.has(workspace)) continue;
+      checked.add(workspace);
+      try {
+        const page = await feedback.take(workspace);
+        if (page.events.length || page.reset) pages.push(page);
+      } catch { /* Older Hub compatibility: explicit get_review_updates reports unavailable. */ }
+    }
+    if (name.startsWith("propose_")) {
+      for (const target of targets) {
+        if (target.path && await feedback.requiresRead(target.workspace, target.path).catch(() => false)) {
+          return { ...ok({ code: "review_decisions_changed", path: target.path, review_updates: pages, instruction: REVIEW_FEEDBACK_INSTRUCTION }), isError: true };
+        }
+      }
+    }
+    let result: ToolResult;
+    try { result = await callback(args); }
+    catch (error) { result = fail(error instanceof Error ? error.message : String(error)); }
+    if (name === "read_file" && !result.isError && args.start_line === undefined && args.end_line === undefined) {
+      for (const target of targets) if (target.path) await feedback.didRead(target.workspace, target.path).catch(() => undefined);
+    }
+    if (pages.length) {
+      const update = { review_updates: pages, review_instruction: REVIEW_FEEDBACK_INSTRUCTION };
+      try {
+        const payload = JSON.parse(result.content[0].text);
+        result = { ...result, content: [{ type: "text", text: JSON.stringify({ ...payload, ...update }, null, 2) }, ...result.content.slice(1)] };
+      } catch { result = { ...result, content: [...result.content, { type: "text", text: JSON.stringify(update) }] }; }
+    }
+    return result;
+  });
+}
+
+registerTool("get_review_updates", {
+  title: "Get human review decisions",
+  description: "Read persistent Accept/Reject events, including partial reviews and resolved files. Use cursor as after for the next page (hasMore). Omit after to replay recent history. Re-read affected files before edits and do not re-propose rejected changes without a new user request.",
+  inputSchema: { workspace: z.string().optional(), path: z.string().optional(), after: z.string().optional(), limit: z.number().int().min(1).max(100).optional() },
+}, async args => {
+  const workspace = typeof args.workspace === "string" ? args.workspace : await resolveWorkspace(typeof args.path === "string" ? args.path : undefined);
+  try {
+    const result = await callHub<ReviewUpdates>("/review/events", { query: { workspace,
+      ...(typeof args.after === "string" ? { after: args.after } : {}),
+      ...(typeof args.limit === "number" ? { limit: String(args.limit) } : {}),
+    } });
+    return ok({ ...result, instruction: REVIEW_FEEDBACK_INSTRUCTION });
+  } catch (error) { return fail("Review decision feedback unavailable. Install/reconnect the latest Review Hub and inspect get_change. " + String(error)); }
+});
 
 function countOccurrences(haystack: string, needle: string): number {
   if (needle.length === 0) {
@@ -294,12 +362,83 @@ function formatHunksToDiff(hunks: Hunk[]): string {
 // TOOLS
 // ==========================================
 
-server.registerTool(
+registerTool(
+  "propose_changes",
+  {
+    title: "Propose multiple file changes",
+    description:
+      "Prefer for one or many file changes. Reads latest content, applies each file's edits sequentially, normalizes paths/EOL, and writes code to disk immediately so builds/tests see it. Keeps a baseline for human hunk review: accept keeps code, reject restores it. Exactly one of edits/content/delete per file. Each file's edits validate together; other files continue on error. Retry only failed entries. Returns bounded changed excerpts or error context; truncated excerpts are not exact replacement input.",
+    inputSchema: {
+      changes: z.array(z.object({
+        path: z.string().min(1),
+        edits: z.array(z.object({
+          old_string: z.string().min(1),
+          new_string: z.string(),
+          replace_all: z.boolean().optional(),
+        })).min(1).max(100).optional(),
+        content: z.string().optional(),
+        delete: z.literal(true).optional(),
+      }).strict().refine(change => [change.edits, change.content, change.delete].filter(value => value !== undefined).length === 1,
+        "Provide exactly one of edits, content, delete.")).min(1).max(100),
+      include_context: z.boolean().optional().describe("Return bounded changed excerpts (default true). Error context is always returned."),
+    },
+  },
+  async args => {
+    const { changes, include_context = true } = args as {
+      changes: Array<{ path: string; edits?: FileEdit[]; content?: string; delete?: true }>;
+      include_context?: boolean;
+    };
+    const results: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    for (const change of changes) {
+      let path = change.path;
+      try {
+        const workspace = await resolveWorkspace(path);
+        const absolute = resolveInside(workspace, path);
+        if (!absolute) throw new Error("Path must identify a file inside the workspace.");
+        path = toPosix(nodePath.relative(workspace, absolute));
+        const key = process.platform === "win32" ? absolute.toLowerCase() : absolute;
+        if (seen.has(key)) throw new Error("Duplicate file entry. Combine sequential edits in one entry.");
+        seen.add(key);
+        const current = await callHub<{ exists: boolean; binary: boolean; content: string }>("/file/read", {
+          query: { workspace, path },
+        });
+        if (current.binary && !change.delete) throw new Error("Cannot edit or replace a binary file.");
+        if (!current.exists && (change.edits || change.delete)) throw new Error("File not found. Use content to create it.");
+        let content = change.content ?? "";
+        if (change.edits) {
+          const applied = applyFileEdits(current.content, change.edits);
+          if (!applied.success) {
+            results.push({ path, status: "error", ...applied.error });
+            continue;
+          }
+          content = applied.content;
+        }
+        if (!change.delete && current.exists && content === current.content) {
+          results.push({ path, status: "unchanged" });
+          continue;
+        }
+        const staged = await callHub<{ changeId: string; hunks: unknown[] }>("/changes/propose", {
+          method: "POST", body: { workspace, path, content, delete: change.delete },
+        });
+        results.push({ path, status: "staged_for_review", applied: true, changeId: staged.changeId, hunks: staged.hunks.length,
+          ...(include_context && !change.delete ? { context: changedContext(current.content, content) } : {}),
+        });
+      } catch (error) {
+        results.push({ path, status: "error", message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    const errors = results.filter(result => result.status === "error").length;
+    return ok({ status: errors ? (errors === results.length ? "error" : "partial_success") : "staged_for_review", results });
+  },
+);
+
+registerTool(
   "propose_edit",
   {
     title: "Propose edit",
     description:
-      "Stage an edit to a file for human review instead of writing it. Mirrors the native Edit tool (old_string/new_string). Automatically handles CRLF/LF line ending matching. The user sees a diff and accepts or rejects each hunk; nothing is written until they accept. Prefer this over Edit/Write so the user can review your change.",
+      "Edit a file through Hub (old_string/new_string, CRLF/LF matching). Writes immediately so tests use new code; preserves the baseline for per-hunk review. Accept keeps the edit, reject restores old code. Prefer propose_changes to batch edits.",
     inputSchema: {
       path: z.string().describe("Workspace-relative path to the file."),
       old_string: z.string().describe("Exact text to replace (must be unique unless replace_all)."),
@@ -329,21 +468,22 @@ server.registerTool(
     });
     return ok({
       status: "staged_for_review",
+      applied: true,
       changeId: result.changeId,
       path,
       hunks: result.hunks.length,
       note:
-        "Edit staged for review. Nothing was written to disk: the user sees it in Review Hub and each hunk is written only when they accept it. Reading the file with your own tools will show the OLD content — that is expected. Use the `read_file` tool to see the staged content. This is success: continue with your task.",
+        "Written to disk, awaiting review. Run builds/tests on the new code. Accept keeps it; reject restores the baseline.",
     });
   },
 );
 
-server.registerTool(
+registerTool(
   "propose_write",
   {
     title: "Propose write",
     description:
-      "Stage a full file write (new or replaced) for human review instead of writing it directly. Nothing is written until the user accepts.",
+      "Create or replace a file through Hub. Writes immediately for builds/tests and preserves the baseline for review. Accept keeps it; reject restores the old file or removes a newly created file.",
     inputSchema: {
       path: z.string().describe("Workspace-relative path."),
       content: z.string().describe("Full new content of the file."),
@@ -358,21 +498,22 @@ server.registerTool(
     });
     return ok({
       status: "staged_for_review",
+      applied: true,
       changeId: result.changeId,
       path,
       hunks: result.hunks.length,
       note:
-        "Write staged for review. Nothing was written to disk: the user sees it in Review Hub and each hunk is written only when they accept it. Reading the file with your own tools will show the OLD content — that is expected. Use the `read_file` tool to see the staged content. This is success: continue with your task.",
+        "Written to disk, awaiting review. Run builds/tests on the new code. Accept keeps it; reject restores the baseline.",
     });
   },
 );
 
-server.registerTool(
+registerTool(
   "propose_delete",
   {
     title: "Propose delete",
     description:
-      "Stage a file deletion for human review instead of deleting it directly. Nothing is deleted until the user accepts.",
+      "Delete a file immediately through Hub, preserving its original content for review. Accept keeps it deleted; reject restores it.",
     inputSchema: {
       path: z.string().describe("Workspace-relative path to the file to delete."),
     },
@@ -386,16 +527,17 @@ server.registerTool(
     });
     return ok({
       status: "staged_for_review",
+      applied: true,
       changeId: result.changeId,
       path,
       hunks: result.hunks.length,
       note:
-        "Deletion staged for review. Nothing was deleted from disk: the user sees it in Review Hub and the file is deleted only when they accept it.",
+        "Deleted from disk, awaiting review. Accept keeps it deleted; reject restores the original file.",
     });
   },
 );
 
-server.registerTool(
+registerTool(
   "read_file",
   {
     title: "Read file",
@@ -451,7 +593,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTool(
   "list_changes",
   {
     title: "List pending changes",
@@ -470,7 +612,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTool(
   "get_change",
   {
     title: "Get change details and diff",
@@ -506,11 +648,11 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTool(
   "accept",
   {
     title: "Accept change",
-    description: "Accept all hunks (or specific hunk ids) of a staged change, writing them to disk.",
+    description: "Accept all hunks (or specific hunk ids), keeping the new code already on disk. Pending hunks remain applied; rejected hunks keep old code.",
     inputSchema: {
       path: z.string().optional().describe("Workspace-relative path (alternative to changeId)."),
       changeId: z.string().optional(),
@@ -527,7 +669,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTool(
   "reject",
   {
     title: "Reject change",
@@ -548,7 +690,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTool(
   "set_checkpoint",
   {
     title: "Set checkpoint",
@@ -567,7 +709,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTool(
   "get_checkpoint",
   {
     title: "Get checkpoint info",
@@ -587,7 +729,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTool(
   "clear_checkpoint",
   {
     title: "Clear checkpoint",
@@ -605,7 +747,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTool(
   "list_workspaces",
   {
     title: "List workspaces",
@@ -716,6 +858,15 @@ server.registerPrompt(
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // Logging is advisory; it does not trigger inference or consume tool feedback.
+  const reviewTimer = setInterval(() => {
+    void feedback.poll(page => server.sendLoggingMessage({ level: "info", logger: "review-hub", data: {
+      type: "review_decisions", ...page, instruction: REVIEW_FEEDBACK_INSTRUCTION,
+    } }));
+  }, 1500);
+  reviewTimer.unref();
+  process.stdin.once("end", () => clearInterval(reviewTimer));
+  process.stdin.once("close", () => clearInterval(reviewTimer));
 }
 
 main().catch((err) => {

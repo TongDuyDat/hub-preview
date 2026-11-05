@@ -1,3 +1,4 @@
+import { installRequiredReview, type RequiredReviewResult } from "./required-review";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { constants } from "node:fs";
@@ -40,6 +41,7 @@ export interface DetectedAgent {
 export interface RegistrationOptions {
   /** Separate opt-in; checked again immediately before writing the Claude rules. */
   claudeInstructions?: () => boolean;
+  requireReview?: () => boolean;
 }
 export interface RegistrationResult {
   id: AgentId;
@@ -47,6 +49,7 @@ export interface RegistrationResult {
   configPath: string;
   status: "registered" | "already-configured" | "disabled" | "error";
   instructions?: ClaudeInstructionsResult;
+  requiredReview?: RequiredReviewResult;
   message?: string;
 }
 
@@ -250,6 +253,15 @@ export async function registerDetectedAgents(
         environment.env.CLAUDE_CONFIG_DIR || path.join(environment.homeDir, ".claude"),
         () => enabled(agent.id) && !!options.claudeInstructions?.(),
       );
+    }
+    if (options.requireReview && (result.status === "registered" || result.status === "already-configured")) {
+      if (agent.id === "claudeCode" || agent.id === "ohMyPi") {
+        result.requiredReview = await installRequiredReview(agent.id,
+          agent.id === "claudeCode" ? environment.env.CLAUDE_CONFIG_DIR || path.join(environment.homeDir, ".claude") : path.dirname(agent.configPath),
+          environment.platform, options.requireReview, () => enabled(agent.id));
+      } else if (options.requireReview()) {
+        result.requiredReview = { path: agent.configPath, status: "unsupported", message: "MCP configured; required review is not enforced for this agent." };
+      }
     }
     results.push(result);
   }
