@@ -1,7 +1,7 @@
 {
   "name": "review-hub-vscode",
   "displayName": "Review Hub",
-  "description": "Review AI changes proposed through MCP and accept or reject individual hunks. Works with Claude Code, opencode, dsh, Cline and Roo.",
+  "description": "Review AI code changes inline with per-block Accept/Reject and bundled MCP setup for coding agents.",
   "version": "0.3.4",
   "publisher": "review-hub",
   "license": "MIT",
@@ -248,7 +248,7 @@
         "review-hub.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable Review Hub. When off, the hub server is not started and the file watcher is disabled."
+          "description": "Enable the Review Hub server and review interface for MCP proposals."
         },
         "review-hub.watchDirectWrites": {
           "type": "boolean",
@@ -277,7 +277,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Extra glob patterns ignored by the watcher and snapshot. Built-in defaults (VCS, deps, caches, ML/data artifacts) always apply; entries here are added to them."
+          "description": "Extra glob patterns excluded from review tracking and checkpoint snapshots. Built-in exclusions for version control, dependencies, caches and data artifacts always apply."
         },
         "review-hub.maxSnapshotFiles": {
           "type": "number",
@@ -390,10 +390,22 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TongDuyDat/hub-preview"
+    "url": "https://github.com/TongDuyDat/hub-preview",
+    "directory": "vscode"
   },
   "scripts": {
     "package": "vsce package --no-dependencies"
   },
-  "icon": "dist/icon.png"
+  "icon": "dist/icon.png",
+  "homepage": "https://tongduydat.github.io/hub-preview/",
+  "bugs": {
+    "url": "https://github.com/TongDuyDat/hub-preview/issues"
+  },
+  "keywords": [
+    "AI",
+    "MCP",
+    "code review",
+    "diff",
+    "agents"
+  ]
 }

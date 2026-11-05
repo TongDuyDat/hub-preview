@@ -7,6 +7,7 @@ body {
   background: var(--vscode-editor-background);
 }
 .bar {
+  flex-wrap: wrap;
   position: sticky;
   top: 0;
   z-index: 2;
@@ -16,6 +17,14 @@ body {
   padding: 4px 10px;
   background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
   border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+.bar .name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.bar .btn,
+.bar .stat {
+  flex-shrink: 0;
 }
 .hunkbar {
   display: flex;

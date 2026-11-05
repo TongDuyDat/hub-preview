@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review Hub - Safe, Hunk-by-Hunk Review for AI Code Changes</title>
-  <meta name="description" content="Always see what AI coding agents changed in your project, and accept or reject individual hunks. Works with Claude Code, Cursor, Cline, Roo Code via MCP.">
+  <meta name="description" content="Review AI code proposals inline with per-block Accept/Reject and bundled MCP setup for coding agents.">
   <link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,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">
   <link rel="icon" type="image/svg+xml" sizes="any" href="assets/review-hub.svg?v=robot-svg-20261104">
   <style>
@@ -37,7 +37,7 @@
       top: -150px;
       left: 50%;
       transform: translateX(-50%);
-      width: 700px;
+      width: min(700px, 100%);
       height: 400px;
       background: radial-gradient(ellipse at center, rgba(99, 102, 241, 0.25) 0%, rgba(56, 189, 248, 0.1) 40%, transparent 70%);
       filter: blur(60px);
@@ -231,13 +231,17 @@
       font-size: 14px;
       box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
     }
+    .terminal-box { gap: 12px; }
     .command-text {
+      flex: 1;
+      min-width: 0;
       color: #38bdf8;
-      overflow-x: auto;
-      white-space: nowrap;
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
-    .command-text span { color: var(--text-muted); }
+    .command-text span { display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; }
     .copy-btn {
+      flex-shrink: 0;
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid var(--card-border);
       color: #e2e8f0;
@@ -345,7 +349,7 @@
           <span id="release-badge-text">Latest Release</span>
         </div>
         <h1>Human Review for AI Code Changes</h1>
-        <p>Always inspect what AI coding agents (Claude Code, Cursor, Cline, Roo Code) propose in your project, and accept or reject individual hunks before anything touches disk.</p>
+        <p>Review AI proposals inline, block by block. Changes are applied to disk immediately for builds and tests. Accept keeps the new code; Reject restores the previous code.</p>
 
         <!-- Download Cards -->
         <div class="download-grid">
@@ -366,7 +370,7 @@
                   <span>review-hub-vscode</span>
                 </div>
               </div>
-              <p class="card-desc">Staged in-editor inline diff, CodeLens buttons, real-time file watcher, and dedicated Review Tab.</p>
+              <p class="card-desc">Inline red/green review, per-block Accept/Reject, full file paths and bundled MCP agent setup.</p>
             </div>
             <a id="vscode-download-btn" href="https://github.com/TongDuyDat/hub-preview/releases/latest" class="btn btn-primary">
               Download for VS Code
@@ -421,7 +425,7 @@
                   <span>review-hub-mcp</span>
                 </div>
               </div>
-              <p class="card-desc">Runs with zero installation via npx. Integrates into Claude Code, Cursor, Cline, Roo Code, and Antigravity.</p>
+              <p class="card-desc">Bundled with the VS Code extension for supported coding agents. Standalone npm setup is optional.</p>
             </div>
             <a href="https://www.npmjs.com/package/review-hub-mcp" target="_blank" rel="noopener" class="btn btn-secondary">
               View on npmjs
@@ -432,9 +436,9 @@
         <!-- MCP Command Snippet -->
         <div class="terminal-box">
           <div class="command-text">
-            <span>$</span> npx -y review-hub-mcp
+            <span>Command Palette</span> Review Hub: Scan and Register Detected Agents
           </div>
-          <button class="copy-btn" onclick="copyCommand('npx -y review-hub-mcp')">Copy</button>
+          <button class="copy-btn" onclick="copyCommand('Review Hub: Scan and Register Detected Agents')">Copy</button>
         </div>
       </section>
 
@@ -442,7 +446,7 @@
       <section id="install">
         <div class="section-title">
           <h2>How to Install</h2>
-          <p>Easy 1-minute manual installation until official marketplace publication</p>
+          <p>Install the VSIX, enable agent registration, then reconnect your agent. <a href="https://github.com/TongDuyDat/hub-preview/blob/main/docs/INSTALLATION.md">English guide</a> · <a href="https://github.com/TongDuyDat/hub-preview/blob/main/docs/INSTALLATION.vi.md" lang="vi">Hướng dẫn tiếng Việt</a></p>
         </div>
 
         <div class="install-steps">
@@ -453,7 +457,8 @@
               <li>Download the extension using the <strong>Download for VS Code</strong> button above.</li>
               <li>Open VS Code and press <code>Ctrl+Shift+X</code> (Extensions view).</li>
               <li>Click the <code>...</code> (Views and More Actions) menu in the top-right corner.</li>
-              <li>Select <strong>Install from VSIX...</strong> and choose the downloaded file.</li>
+              <li>Select <strong>Install from VSIX...</strong> and choose the downloaded file (VS Code 1.103.0+).</li>
+              <li>Reload that window if prompted, open your project and run <strong>Review Hub: Scan and Register Detected Agents</strong>.</li>
             </ol>
           </div>
 
@@ -472,10 +477,10 @@
             <div class="step-number">Option C</div>
             <h4>Configure Your AI Agent</h4>
             <ol>
-              <li>Add <code>review-hub</code> to your AI tool MCP config (<code>~/.claude.json</code>, Cline, Roo Code):
-                <br><code>"command": "npx", "args": ["-y", "review-hub-mcp"]</code>
+              <li>Enable <strong>Review Hub: Auto Register MCP</strong> and select your agents in Settings. An agent checkbox alone does not enable registration.
               </li>
-              <li>Click <strong>Copy AI Agent Rules</strong> in Review Hub to add enforcement rules into <code>CLAUDE.md</code>, <code>.cursorrules</code>, or <code>.clinerules</code>.</li>
+              <li>Scan, inspect the results and reconnect MCP or start a new agent session. The VSIX already includes the MCP server.</li>
+              <li>Run <strong>Review Hub: Install agent instructions</strong>, then ask your agent to submit edits through Hub proposal tools.</li>
             </ol>
           </div>
         </div>
@@ -492,28 +497,28 @@
           <div class="step-card">
             <h4>🔒 Does Review Hub send my code to the cloud?</h4>
             <p style="color: var(--text-muted); font-size: 14px; margin-top: 8px;">
-              <strong>No, never.</strong> Review Hub runs 100% locally on your machine. All changes, baselines, and diffs are kept in a local SQLite store (<code>~/.review-hub/hub.db</code>). No telemetry, no external server.
+              Review Hub stores changes, baselines and diffs locally. Your AI agent’s own settings govern what it sends to its model provider. This website fetches public release metadata from GitHub.
             </p>
           </div>
 
           <div class="step-card">
             <h4>🤖 Which AI coding agents are supported?</h4>
             <p style="color: var(--text-muted); font-size: 14px; margin-top: 8px;">
-              Works with MCP clients including Claude Code, Codex, Cursor, Cline, Roo Code, Antigravity, Windsurf, DeepSeek Harness and Oh My Pi. The VS Code extension reviews proposals submitted through Review Hub MCP; direct shell writes and Git diffs are not imported.
+              Auto-registration supports Claude Code, Codex, Cursor, Windsurf, OpenCode, Cline, Roo Code, Gemini CLI, Antigravity, DeepSeek Harness and Oh My Pi. The VS Code extension reviews proposals submitted through Review Hub MCP; direct shell writes and Git diffs are not imported.
             </p>
           </div>
 
           <div class="step-card">
             <h4>⚡ Can I use VS Code and JetBrains together?</h4>
             <p style="color: var(--text-muted); font-size: 14px; margin-top: 8px;">
-              <strong>Yes!</strong> Review Hub's local hub server coordinates across multiple IDE windows. Changes proposed in one editor update instantly across all open windows.
+              Review Hub shares a local server across IDE windows. Use compatible builds on the same host; JetBrains releases have separate feature availability. After an update, inspect Show Hub Info and reload the hosting window if it still runs an older Hub.
             </p>
           </div>
 
           <div class="step-card">
             <h4>🛡️ What if the AI refuses to call MCP?</h4>
             <p style="color: var(--text-muted); font-size: 14px; margin-top: 8px;">
-              Click <strong>Copy AI Agent Rules</strong> in the Review Hub toolbar and paste the rules into <code>CLAUDE.md</code> or <code>.cursorrules</code>. You can also disable native write tools in Cline / Roo Code settings.
+              Run <strong>Install agent instructions</strong> to guide agents to Hub. Optional <strong>Require Review</strong> hooks enforce tool routing for Claude Code and Oh My Pi on Linux/macOS. Other clients do not have equivalent hook enforcement. See the installation guide for setup and removal.
             </p>
           </div>
         </div>

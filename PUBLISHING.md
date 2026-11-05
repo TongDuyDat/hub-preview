@@ -1,109 +1,66 @@
-# Phát hành Review Hub
+# Publishing Review Hub
 
-Bản phát hành này dùng **GitHub Releases** để cộng đồng tải VSIX. npm là kênh phân phối MCP server. Visual Studio Marketplace sẽ làm ở bước riêng; không cần tài khoản Marketplace để tải/cài VSIX.
+[English](PUBLISHING.md) | [Tiếng Việt](PUBLISHING.vi.md) · [README](README.md)
 
-## Phiên bản và kiểm tra
+## Prepare a release
 
-Phiên bản Node packages hiện tại: **0.3.4**. JetBrains giữ phiên bản riêng vì lần này không thay đổi plugin.
+Use Node.js 22.13 or newer. From the repository root:
 
-Dùng Node.js **22.13.0 trở lên** và chạy từ thư mục gốc repository:
-
-```bash
+```sh
 npm ci
-npm run package:vscode
 npm run typecheck
 npm test
+npm run package:vscode
 npm run pack:mcp
 ```
 
-Kết quả:
+Inspect the generated VSIX in `vscode/` and npm tarball in `mcp/`. Install the VSIX in a test window and check agent registration, inline review, Accept/Reject and reconnection. Review the English/Vietnamese READMEs, icon, changelog, license and package metadata.
 
-- `vscode/review-hub-vscode-0.3.4.vsix`: extension để cài thủ công.
-- `mcp/review-hub-mcp-0.3.4.tgz`: package MCP có thể kiểm tra trước khi publish npm.
+Keep versions aligned in root, core, mcp and vscode package.json files and the lockfile when preparing a new release. Update CHANGELOG.md and vscode/CHANGELOG.md. Published versions/tags must be unique; **v0.3.4 already exists on GitHub**. Do not reuse or overwrite it for newer source changes.
 
-Các file demo thử giao diện không thuộc bản phát hành.
+## Register a VS Code Marketplace publisher
 
-## Public VSIX trên GitHub Releases
+1. Sign in with a Microsoft account at [Manage Publishers](https://marketplace.visualstudio.com/manage).
+2. Create a publisher. This project uses Publisher ID **review-hub**, matching `vscode/package.json`. Confirm you own that exact ID before publishing. If it is unavailable, choose an available ID and update the manifest before rebuilding.
+3. Complete the publisher's required profile/contact fields. A verified domain is optional for initial publishing.
+4. Under your publisher, choose **New extension → Visual Studio Code** and upload the newly built VSIX.
+5. Wait for validation, inspect the listing and test installation. For later versions, upload a new VSIX with a higher extension version.
 
-Workflow [Build and Release](https://github.com/TongDuyDat/hub-preview/actions/workflows/release.yml) kiểm tra mỗi lần push `main`. Nó chỉ tạo release công khai khi push tag phiên bản hoặc chạy thủ công; không ghi đè release cũ trên mỗi commit.
+Once published, the extension identifier is `review-hub.review-hub-vscode`, and its listing URL will be `https://marketplace.visualstudio.com/items?itemName=review-hub.review-hub-vscode`. These are the expected identifiers, not confirmation of publication.
 
-Sau khi commit phiên bản mới lên main:
+### Optional CLI publishing
 
-```bash
-git tag -a v0.3.4 -m "Review Hub v0.3.4"
-git push origin v0.3.4
+Create an Azure DevOps personal access token with **Marketplace: Manage** scope and **All accessible organizations**, following [Microsoft's publishing guide](https://code.visualstudio.com/api/working-with-extensions/publishing-extension). Enter the token locally when vsce prompts; never put it in source files, commands committed to Git, or chat.
+
+From `vscode/`:
+
+```sh
+npx vsce login review-hub
+npx vsce publish --packagePath ./review-hub-vscode-0.3.4.vsix
 ```
 
-Tag phải trùng version trong `package.json`, `core/package.json`, `mcp/package.json` và `vscode/package.json`. Với lần sau, tăng đồng bộ các version và lockfile trước khi tạo tag mới. Không tái sử dụng tag đã phát hành.
+Replace the example filename with the fresh package. Version 0.3.4 is only usable on Marketplace if that version has not been published there. Account creation, credential entry and publication are manual actions; building a VSIX does not publish it.
 
-Workflow build/test rồi đính kèm VSIX, tarball MCP và `SHA256SUMS.txt` tại:
+## GitHub Releases
 
-https://github.com/TongDuyDat/hub-preview/releases/latest
+`.github/workflows/release.yml` validates and packages pushes to main. A **new version tag** (`vX.Y.Z`, matching all package versions) or manual workflow run publishes a GitHub Release with VSIX, MCP tarball and SHA256 checksums. JetBrains packaging is optional on manual runs.
 
-Người dùng cài VSIX bằng **Extensions → … → Install from VSIX…** hoặc:
+Before triggering a release, commit the reviewed changes, choose an unused version and inspect the workflow. Manual runs also target the manifest version; do not run one against an already published tag for new code. The workflow does not publish to Marketplace or npm.
 
-```bash
-code --install-extension review-hub-vscode-0.3.4.vsix --force
-```
+## npm (optional standalone MCP)
 
-Có thể chọn **Run workflow → include_jetbrains** để build thêm plugin JetBrains. Bản VSIX/MCP thông thường không cần Java hay Gradle.
+The VSIX bundles MCP, so npm publication is not required for extension users. To publish `review-hub-mcp`, confirm npm package ownership, sign in locally and enable the authentication/2FA required by npm:
 
-## Đăng ký tài khoản và publish npm
-
-1. Tạo/đăng nhập tài khoản tại https://www.npmjs.com/signup và xác minh email.
-2. Bật 2FA trong phần tài khoản npm. Đăng nhập CLI qua trình duyệt:
-
-```bash
-npm login --auth-type=web
+```sh
+npm login
 npm whoami
-npm view review-hub-mcp version
-npm owner ls review-hub-mcp
+npm run build:mcp
+npm run pack:mcp
+npm publish ./mcp/review-hub-mcp-0.3.4.tgz --access public
 ```
 
-Tên `review-hub-mcp` **đã có trên npm** (trước lần phát hành này là 0.3.3). Không đăng ký tên này lần nữa. Tài khoản đăng nhập phải là owner/maintainer; nếu chưa có quyền, nhờ owner hiện tại thêm tài khoản bằng `npm owner add TEN_TAI_KHOAN review-hub-mcp`.
+Replace the filename with the new tarball and inspect it before publishing. If the package name is unclaimed, the first successful publish registers it; if claimed, you need ownership or a different name. npm versions are immutable, so use a new version for each release. Keep npm credentials out of the repository.
 
-Không cần viết file chứa mật khẩu hoặc npm token trong repository. CLI lưu thông tin đăng nhập vào cấu hình người dùng. Không commit thông tin xác thực.
+## After publication
 
-Kiểm tra danh sách file trong gói:
-
-```bash
-npm pack --workspace review-hub-mcp --dry-run
-```
-
-Gói phải có `package.json`, `bin/mcp-server.cjs`, `README.md` và `LICENSE`. `prepack` tự build bundle trước khi đóng gói; `prepublishOnly` chạy TypeScript/test trước khi publish.
-
-Publish từ thư mục gốc:
-
-```bash
-npm run publish:mcp
-```
-
-Hoặc publish từ thư mục `mcp/`:
-
-```bash
-cd mcp
-npm publish --access public
-```
-
-Hoàn thành yêu cầu xác thực/OTP của npm khi được hỏi. npm không cho ghi đè phiên bản đã publish; nếu version đã tồn tại, tăng version rồi build/test lại. Tarball trên GitHub Releases **không tự xuất hiện trên npm**; workflow hiện tại không publish npm và không cần `NPM_TOKEN`.
-
-Xác minh sau khi publish:
-
-```bash
-npm view review-hub-mcp@0.3.4 version bin engines
-npx -y review-hub-mcp@0.3.4
-```
-
-Lệnh cuối khởi động MCP stdio và có thể chờ input; đây không phải lệnh in phiên bản. Để kiểm tra tools, mở project trong VS Code có Review Hub, cấu hình agent dùng package này, rồi gọi `list_changes`.
-
-## Website GitHub Pages
-
-Website tĩnh ở `docs/index.html`; `docs/.nojekyll` tắt Jekyll/Sass cho site này. Trong **Repository → Settings → Pages**, giữ **Deploy from a branch → main → /docs**.
-
-Không xóa thư mục `docs` khi quay về code extension cũ. Việc thiếu thư mục nguồn gây lỗi `No such file or directory @ dir_chdir0 - /github/workspace/docs`.
-
-Website: https://tongduydat.github.io/hub-preview/
-
-## Marketplace sau này
-
-Tạo publisher tại https://marketplace.visualstudio.com/manage, xác minh quyền sở hữu publisher, rồi đối chiếu `publisher` trong `vscode/package.json` (hiện là `review-hub`). Chỉ dùng publisher mà tài khoản thực sự sở hữu. Sau khi có quyền, publish VSIX đã kiểm tra theo tài liệu chính thức: https://code.visualstudio.com/api/working-with-extensions/publishing-extension
+Confirm the public installation/download links, check a clean install on another machine and verify that MCP tools match the extension. Update website/README links once the Marketplace listing is live. The website resolves the latest GitHub Release separately; it does not track unpublished local builds.

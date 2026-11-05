@@ -23,14 +23,17 @@
 
   function renderBar(s) {
     const bar = el("div", "bar");
-    bar.appendChild(el("span", "name", s.name + (s.dir ? "  " + s.dir : "")));
+    const path = [s.dir, s.name].filter(Boolean).join("/");
+    const name = el("span", "name", path);
+    name.title = path;
+    bar.appendChild(name);
     bar.appendChild(el("span", "stat", "+" + s.added + " \u2212" + s.removed));
-    if (s.status === "resolved") bar.appendChild(el("span", "stat", "resolved"));
+    if (s.status === "resolved") bar.appendChild(el("span", "stat", "Reviewed"));
     bar.appendChild(el("span", "spacer"));
-    bar.appendChild(button("\u2713 Accept All", "Accept every hunk", function () {
+    bar.appendChild(button("\u2713 Accept All", "Keep all proposed changes in this file", function () {
       send("acceptFile", { changeId: s.changeId });
     }));
-    bar.appendChild(button("\u21ba Discard All", "Reject every hunk", function () {
+    bar.appendChild(button("\u21ba Reject All", "Restore the previous code for all changes in this file", function () {
       send("rejectFile", { changeId: s.changeId });
     }));
     return bar;
@@ -55,7 +58,7 @@
     bar.appendChild(el("span", "spacer"));
     if (hunk.decision === "accepted") {
       bar.appendChild(el("span", "badge ok", "\u2713 accepted"));
-      bar.appendChild(button("\u21ba Undo", "Undo — restore baseline lines", function () {
+      bar.appendChild(button("\u21ba Undo", "Undo — restore previous code", function () {
         send("rejectHunk", { changeId: s.changeId, hunkId: hunk.id });
       }));
     } else if (hunk.decision === "rejected") {
@@ -67,7 +70,7 @@
       bar.appendChild(button("\u2713 Accept", "Keep this hunk's new lines", function () {
         send("acceptHunk", { changeId: s.changeId, hunkId: hunk.id });
       }));
-      bar.appendChild(button("\u21ba Reject", "Restore this hunk's baseline lines", function () {
+      bar.appendChild(button("\u21ba Reject", "Restore this block's previous code", function () {
         send("rejectHunk", { changeId: s.changeId, hunkId: hunk.id });
       }));
     }

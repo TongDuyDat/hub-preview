@@ -227,7 +227,7 @@
       details.appendChild(button("Update checkpoint", "Accept the current workspace state as a new checkpoint", function () { send("setCheckpoint"); }, "secondary", null, "checkpoint"));
       footer.appendChild(details);
     }
-    footer.appendChild(el("p", "save-note", "Accept a change to save it to your file."));
+    footer.appendChild(el("p", "save-note", "Changes are already on disk. Accept keeps them; Reject restores the previous code."));
     panel.appendChild(footer);
     root.appendChild(panel);
     if (focusKey) {

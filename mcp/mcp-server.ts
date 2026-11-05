@@ -5,8 +5,8 @@ import { ReviewFeedback, REVIEW_FEEDBACK_INSTRUCTION } from "./review-feedback";
  * the VS Code extension or JetBrains plugin, discovered via ~/.review-hub/hub.json.
  *
  * It never edits files itself. If the hub is not running it fails fast with a clear
- * message so the agent falls back to native tools (whose writes the FS watcher still
- * catches). It must never hang.
+ * message so the agent can reconnect. Direct writes outside MCP are not reviewed.
+ * It must never hang.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -45,7 +45,7 @@ async function callHub<T>(path: string, init: { method?: string; body?: unknown;
   const target = resolveTarget();
   if (!target) {
     throw new Error(
-      "Review Hub is not running. Open Review Hub in VS Code or JetBrains IDE, start the standalone daemon (node dist/hub-server.cjs), or fall back to native tools (file watcher will capture direct writes).",
+      "Review Hub is not running. Open the workspace with Review Hub enabled in your IDE, or start the standalone daemon (node dist/hub-server.cjs), then reconnect. Direct writes outside MCP do not create reviews.",
     );
   }
   const url = new URL(target.url + path);
@@ -78,7 +78,7 @@ async function callHub<T>(path: string, init: { method?: string; body?: unknown;
     }
     if (e?.message === "fetch failed" || e?.name === "TypeError") {
       throw new Error(
-        "Review Hub is not reachable. Open Review Hub in VS Code or JetBrains IDE, start the standalone daemon, or fall back to your normal edit tools (the file watcher still records those changes).",
+        "Review Hub is not reachable. Check the hosting IDE window or standalone daemon and ensure the agent uses the same environment, then reconnect. Direct writes outside MCP do not create reviews.",
       );
     }
     throw err;

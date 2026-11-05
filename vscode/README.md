@@ -1,41 +1,43 @@
-# Review Hub for VS Code
+# Review Hub
 
-Review AI edits as red/green inline diffs and accept or reject individual code blocks.
+[English](https://github.com/TongDuyDat/hub-preview/blob/main/vscode/README.md) | [Tiếng Việt](https://github.com/TongDuyDat/hub-preview/blob/main/vscode/README.vi.md)
 
-## Features
+Review AI code changes directly in VS Code: old code in red, new code in green, and **Accept / Reject for each block**. Browse pending proposals by workspace and file, with full project-relative paths.
 
-- Review only edits submitted through Review Hub MCP, without importing Git diffs.
-- Accept or reject each block independently; decisions update the original file immediately.
-- Open a file with pending edits to reveal its inline review in the same editor group.
-- Return to the original file after the last block is resolved, with Auto Save support.
-- Browse files and their changed blocks in a compact Explorer-style panel.
-- Enable **Auto Register MCP** in Settings for 11 agents, including DeepSeek Harness and Oh My Pi.
+## How it works
 
-## Install
+Your agent submits edits through Review Hub MCP. Proposed code is **applied to disk immediately**, so builds and tests see it. Accept keeps the code; Reject restores the previous code for the selected block. Auto Save continues to save the real file.
 
-Download the VSIX from [GitHub Releases](https://github.com/TongDuyDat/hub-preview/releases/latest).
-In VS Code, select **Extensions → … → Install from VSIX…**, then reload a test window.
+Opening a file with pending changes brings its review into view. When review is complete, you return to the original file. The agent can read Accept/Reject decisions and refresh the affected code before editing again.
 
-```bash
-code --install-extension review-hub-vscode-0.3.4.vsix --force
-```
+Review Hub only imports MCP proposals. Native agent Edit/Write/Bash operations and Git diffs do not automatically create reviews.
 
-On a new machine, choose **Enable and Scan** in the first-run prompt, or run **Review Hub: Scan and Register Detected Agents** from the Command Palette. You can also enable **Settings → Extensions → Review Hub → Auto Register MCP** and select your agents. This opt-in is local to each machine and does not sync.
+## Get started
 
-For Claude Code on Linux, setup detects both the VS Code extension and the native `~/.local/bin/claude` installation, even when VS Code has a different PATH. The user-level MCP entry is added to `~/.claude.json` (or `CLAUDE_CONFIG_DIR/.claude.json`). Run `claude mcp list` in a new Claude session to check it. See **Output → Review Hub** for the detected agent and configuration path.
-When **Claude: Install Instructions** is enabled (the default), automatic Claude setup also adds a managed Review Hub section to `~/.claude/CLAUDE.md` (or `CLAUDE_CONFIG_DIR/CLAUDE.md`). Existing instructions are preserved, an initial `.review-hub.bak` is kept, and repeated scans do not duplicate the section. This also works when the MCP connection was already configured. Restart the Claude session to load the rules. The rules guide Claude to `propose_edit`/`propose_write`/`propose_delete`; they are not an enforcement hook. Turning the setting off stops updates without removing existing rules.
+Requires VS Code **1.103.0 or newer**.
 
-The MCP server requires Node.js 22.13 or newer on the agent host.
-Marketplace publication is planned separately; the public VSIX is available through GitHub Releases.
+1. Install the extension. For a downloaded VSIX, run **Extensions: Install from VSIX...**, then reload that window if prompted.
+2. Open your project and run **Review Hub: Scan and Register Detected Agents**. Enable registration when prompted.
+3. Enable **Review Hub: Auto Register MCP** in Settings and select the agents to configure. Selecting an agent alone is not enough. Repeat on each machine or remote host.
+4. Reconnect MCP or open a new agent session, then run **Review Hub: Install agent instructions**.
+5. Ask the agent to edit through Hub. Open **Review Hub → Changes** to review each block.
 
-## Build
+The extension bundles its MCP server; normal setup needs **no separate npm install or Node.js runtime**. Optional Claude hooks require Node.js on PATH.
 
-From the repository root:
+## Agent support
 
-```bash
-npm ci
-npm run package:vscode
-```
+Auto-registration supports Claude Code, Codex, Cursor, Windsurf, OpenCode, Cline, Roo Code, Gemini CLI, Antigravity, DeepSeek Harness and Oh My Pi. Existing custom MCP entries are preserved and reported.
 
-The build produces `vscode/review-hub-vscode-0.3.4.vsix`.
-See [PUBLISHING.md](https://github.com/TongDuyDat/hub-preview/blob/main/PUBLISHING.md) for release and npm instructions.
+Instructions guide agents to Hub. Optional **Require Review** hooks enforce tool routing for **Claude Code and Oh My Pi on Linux/macOS**. They do not cover every client or provide an OS sandbox. In this mode, run builds/tests yourself in a terminal.
+
+## Useful commands
+
+- **Review Hub: Show Changes** — open pending reviews.
+- **Review Hub: Scan and Register Detected Agents** — configure detected, selected clients.
+- **Review Hub: Copy MCP Config for AI Tools** — prepare bundled runtime and copy manual configuration.
+- **Review Hub: Install agent instructions** — add project guidance.
+- **Review Hub: Show Hub Info** — inspect the active Hub for troubleshooting.
+
+[Full installation and troubleshooting](https://github.com/TongDuyDat/hub-preview/blob/main/docs/INSTALLATION.md) · [Hướng dẫn tiếng Việt](https://github.com/TongDuyDat/hub-preview/blob/main/docs/INSTALLATION.vi.md) · [Releases](https://github.com/TongDuyDat/hub-preview/releases) · [Report an issue](https://github.com/TongDuyDat/hub-preview/issues)
+
+Review data is stored locally; your AI agent's settings govern model-provider access. Licensed under MIT.
